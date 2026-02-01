@@ -1,0 +1,28 @@
+# Backup Agent Configuration
+
+[agent]
+id = "backup-client-01"
+port = 8080
+data_dir = "/var/lib/backup-agent"
+
+[server]
+url = "http://localhost:3000"
+token = "psk-secret-key"
+
+[sync]
+chunk_size = 1048576  # 1MB
+compression = "zstd"
+compression_level = 3
+
+[log]
+level = "info"
+output = "stdout"
+
+[daemon]
+pid_file = "/var/run/backup-agent.pid"
+user = "backup"
+group = "backup"
+
+[performance]
+max_concurrent_jobs = 1
+io_threads = 4

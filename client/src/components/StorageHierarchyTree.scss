@@ -1,0 +1,182 @@
+@use '../styles/variables' as *;
+
+.storage-hierarchy-tree {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.hierarchy-loading,
+.hierarchy-error {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: $text-muted;
+  font-size: 0.85rem;
+}
+
+.hierarchy-error {
+  color: $danger;
+}
+
+.hierarchy-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 3rem 1rem;
+  color: $text-muted;
+  text-align: center;
+
+  svg {
+    opacity: 0.5;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.hierarchy-server-group,
+.hierarchy-job-group {
+  margin-bottom: 0;
+}
+
+.hierarchy-server-row,
+.hierarchy-job-row,
+.hierarchy-version-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s;
+
+  &:hover {
+    background: $bg-hover;
+  }
+}
+
+.hierarchy-server-row {
+  padding-left: 0.5rem;
+  font-weight: 500;
+
+  .chevron {
+    transition: transform 0.15s;
+    color: $text-muted;
+
+    &.open {
+      transform: rotate(90deg);
+    }
+  }
+
+  .server-icon {
+    color: $primary;
+    flex-shrink: 0;
+  }
+
+  .server-name {
+    font-weight: 600;
+  }
+
+  .server-info {
+    flex: 1;
+    color: $text-muted;
+    font-size: 0.75rem;
+    font-weight: 400;
+  }
+}
+
+.hierarchy-job-row {
+  padding-left: 2rem;
+
+  .chevron {
+    transition: transform 0.15s;
+    color: $text-muted;
+
+    &.open {
+      transform: rotate(90deg);
+    }
+  }
+
+  .job-icon {
+    color: $warning;
+    flex-shrink: 0;
+  }
+
+  .job-name {
+    font-weight: 500;
+  }
+
+  .job-info {
+    flex: 1;
+    color: $text-muted;
+    font-size: 0.75rem;
+    font-weight: 400;
+  }
+}
+
+.hierarchy-version-row {
+  padding-left: 3.5rem;
+  border-left: 2px solid transparent;
+
+  &.selected {
+    background: rgba($primary, 0.1);
+    border-left-color: $primary;
+  }
+
+  .version-info {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .version-timestamp {
+    font-weight: 500;
+    min-width: 140px;
+  }
+
+  .version-status {
+    padding: 0.1rem 0.5rem;
+    border-radius: $radius-sm;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+
+    &.status-completed {
+      background: rgba($success, 0.15);
+      color: $success;
+    }
+
+    &.status-running {
+      background: rgba($primary, 0.15);
+      color: $primary;
+    }
+
+    &.status-failed {
+      background: rgba($danger, 0.15);
+      color: $danger;
+    }
+  }
+
+  .version-size {
+    color: $text-muted;
+    font-size: 0.75rem;
+  }
+}
+
+.jobs-container,
+.versions-container {
+  border-left: 1px solid $border;
+  margin-left: 1.5rem;
+}
+
+.no-versions {
+  padding: 0.75rem 1rem;
+  margin-left: 2rem;
+  color: $text-muted;
+  font-size: 0.75rem;
+  font-style: italic;
+}

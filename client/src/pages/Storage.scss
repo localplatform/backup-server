@@ -1,0 +1,172 @@
+@use '../styles/variables' as *;
+
+// Page — full width, no max-width
+.storage-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+// Empty state
+.empty-state-storage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 5rem 2rem;
+  color: $text-muted;
+
+  svg {
+    opacity: 0.3;
+  }
+  p {
+    font-size: 1rem;
+    margin: 0;
+  }
+}
+
+// Disk usage banner
+.storage-disk-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background: rgba($bg-hover, 0.5);
+  border-bottom: 1px solid $border;
+
+  .disk-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex: 1;
+    min-width: 0;
+
+    code {
+      background: $bg-primary;
+      padding: 0.15rem 0.5rem;
+      border-radius: $radius-sm;
+      font-size: 0.85rem;
+      border: 1px solid $border;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .disk-bar {
+      flex: 1;
+      max-width: 300px;
+      height: 8px;
+      background: $bg-hover;
+      border-radius: 4px;
+      overflow: hidden;
+
+      .disk-bar-fill {
+        height: 100%;
+        background: $primary;
+        border-radius: 4px;
+        transition: width 0.3s;
+
+        &.warning {
+          background: $warning;
+        }
+
+        &.danger {
+          background: $danger;
+        }
+      }
+    }
+  }
+
+  .disk-banner-right {
+    .disk-available {
+      font-size: 0.8rem;
+      color: $text-muted;
+    }
+  }
+}
+
+// Split view layout
+.storage-split-view {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+
+  &:has(.file-explorer-panel) {
+    grid-template-columns: 450px 1fr;
+  }
+
+  @media (max-width: 1280px) {
+    grid-template-columns: 1fr;
+    .file-explorer-panel {
+      display: none;
+    }
+  }
+}
+
+.hierarchy-panel {
+  overflow-y: auto;
+  border-right: 1px solid $border;
+  background: $bg-primary;
+}
+
+.file-explorer-panel {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: $bg-card;
+
+  .panel-header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid $border;
+    background: $bg-primary;
+
+    h3 {
+      margin: 0 0 0.75rem 0;
+      font-size: 1rem;
+      font-weight: 600;
+      color: $text-primary;
+    }
+
+    .version-details {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .detail-item {
+      font-size: 0.85rem;
+      color: $text-secondary;
+
+      strong {
+        font-weight: 600;
+        color: $text-primary;
+        margin-right: 0.5rem;
+      }
+
+      .status-badge {
+        padding: 0.1rem 0.5rem;
+        border-radius: $radius-sm;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+
+        &.status-completed {
+          background: rgba($success, 0.15);
+          color: $success;
+        }
+
+        &.status-running {
+          background: rgba($primary, 0.15);
+          color: $primary;
+        }
+
+        &.status-failed {
+          background: rgba($danger, 0.15);
+          color: $danger;
+        }
+      }
+    }
+  }
+}

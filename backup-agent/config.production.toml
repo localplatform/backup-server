@@ -1,0 +1,27 @@
+[agent]
+id = "agent-10.10.10.10"
+port = 8080
+data_dir = "/var/lib/backup-agent"
+
+[server]
+# This will be updated with the actual backup server URL
+url = "http://10.10.10.1:3000"
+token = ""  # No authentication for MVP
+
+[sync]
+chunk_size = 1048576  # 1MB chunks
+compression = "none"  # Will add zstd in Week 4
+compression_level = 3
+
+[log]
+level = "info"
+output = "stdout"  # Will switch to journald with systemd in Week 5
+
+[daemon]
+pid_file = "/var/run/backup-agent.pid"
+user = "root"  # Will create dedicated user in Week 5
+group = "root"
+
+[performance]
+max_concurrent_jobs = 1
+io_threads = 4

@@ -1,0 +1,427 @@
+@use '../styles/variables' as *;
+
+$row-columns: 110px 1.2fr 1.5fr 140px 170px 150px;
+
+// Page — full width, no max-width
+.jobs-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+// Split layout for jobs list + detail panel
+.jobs-page-split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+
+  &:has(.detail-panel-section) {
+    grid-template-columns: 1fr 420px;
+  }
+
+  @media (max-width: 1280px) {
+    grid-template-columns: 1fr;
+    .detail-panel-section {
+      display: none;
+    }
+  }
+}
+
+.jobs-list-section {
+  overflow-y: auto;
+  min-width: 0;
+  height: 100%;
+}
+
+.detail-panel-section {
+  height: 100%;
+  overflow-y: auto;
+}
+
+// Empty state
+.empty-state-jobs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 5rem 2rem;
+  color: $text-muted;
+
+  svg { opacity: 0.3; }
+  p { font-size: 1rem; }
+}
+
+// Table
+.jobs-table {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.jobs-table-head {
+  display: grid;
+  grid-template-columns: 110px 1.2fr 1.5fr 140px 170px 150px;
+  padding: 0.6rem 1.5rem;
+  background: $bg-primary;
+  border-bottom: 1px solid $border;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: $text-muted;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+}
+
+// Server group
+.server-group {
+  &:not(:last-child) {
+    border-bottom: 1px solid $border;
+  }
+}
+
+.server-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.5rem;
+  background: rgba($bg-hover, 0.5);
+  border-bottom: 1px solid $border;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: $text-secondary;
+
+  svg { color: $text-muted; }
+}
+
+.ping-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: $text-muted;
+
+  &.ping-ok {
+    background: $success;
+  }
+
+  &.ping-fail {
+    background: $danger;
+  }
+}
+
+.server-group-count {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: $text-muted;
+  background: rgba($text-muted, 0.1);
+  padding: 0.05rem 0.45rem;
+  border-radius: 9999px;
+}
+
+// Row
+.job-row {
+  display: grid;
+  grid-template-columns: 110px 1.2fr 1.5fr 140px 170px 150px;
+  align-items: center;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid $border;
+  transition: background 0.1s;
+  cursor: pointer;
+  width: 100%;
+
+  &:last-child { border-bottom: none; }
+
+  &:hover {
+    background: $bg-hover;
+  }
+
+  // Running glow
+  &.status-running {
+    background: rgba($info, 0.03);
+  }
+  &.status-failed {
+    background: rgba($danger, 0.03);
+  }
+
+  // Active job highlighting
+  &.active {
+    background: rgba($primary, 0.08);
+    border-left: 4px solid $primary;
+    padding-left: calc(1.5rem - 4px);
+
+    .status-dot {
+      animation: pulse-dot-active 2s infinite;
+    }
+  }
+}
+
+@keyframes pulse-dot-active {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.15);
+  }
+}
+
+// Columns
+.col-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: $text-muted;
+
+  &.status-running {
+    background: $info;
+    box-shadow: 0 0 6px rgba($info, 0.5);
+    animation: pulse-dot 2s infinite;
+  }
+  &.status-completed { background: $success; }
+  &.status-failed { background: $danger; }
+  &.status-cancelled { background: $warning; }
+  &.status-idle { background: $text-muted; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 4px rgba($info, 0.4); }
+  50% { box-shadow: 0 0 10px rgba($info, 0.7); }
+}
+
+.col-name {
+  min-width: 0;
+
+  strong {
+    font-size: 0.9rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+  }
+}
+
+.col-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+
+  code {
+    display: inline-block;
+    background: $bg-primary;
+    padding: 0.15rem 0.5rem;
+    border-radius: $radius-sm;
+    font-size: 0.75rem;
+    border: 1px solid $border;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+}
+
+.col-schedule {
+  font-size: 0.82rem;
+
+  .schedule-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: $text-secondary;
+  }
+}
+
+.col-lastrun {
+  font-size: 0.8rem;
+  color: $text-secondary;
+}
+
+.no-value {
+  color: $text-muted;
+  font-style: italic;
+  font-size: 0.78rem;
+}
+
+.col-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: $radius-sm;
+  background: transparent;
+  color: $text-muted;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+
+  &:hover {
+    background: rgba($text-muted, 0.12);
+    color: $text-primary;
+  }
+}
+
+.btn-icon-danger:hover {
+  background: rgba($danger, 0.12);
+  color: $danger;
+}
+
+// Job Form Grid Layout
+.job-form-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr 400px;
+  gap: 1.5rem;
+  min-height: 400px;
+
+  @media (max-width: 1200px) {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+.server-selection-column {
+  label {
+    display: block;
+    font-size: 0.875rem;
+    color: $text-secondary;
+    margin-bottom: 0.5rem;
+  }
+}
+
+.form-fields-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.file-browser-column {
+  label {
+    display: block;
+    font-size: 0.875rem;
+    color: $text-secondary;
+    margin-bottom: 0.5rem;
+  }
+}
+
+// Server Cards
+.server-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.server-card {
+  border: 2px solid $border;
+  border-radius: $radius;
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: $bg-card;
+
+  &:hover {
+    border-color: rgba($primary, 0.5);
+    background: $bg-hover;
+  }
+
+  &.selected {
+    border-color: $primary;
+    background: rgba($primary, 0.08);
+  }
+
+  .server-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+
+    strong {
+      font-size: 0.9rem;
+    }
+  }
+
+  .server-card-body {
+    code {
+      font-size: 0.75rem;
+      color: $text-secondary;
+    }
+  }
+
+  .status-badge {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    font-weight: 600;
+
+    &.ssh-connected {
+      background: rgba($success, 0.2);
+      color: $success;
+    }
+
+    &.ssh-disconnected, &.ssh-error {
+      background: rgba($danger, 0.2);
+      color: $danger;
+    }
+
+    &.ssh-connecting {
+      background: rgba($warning, 0.2);
+      color: $warning;
+    }
+  }
+}
+
+// File Browser Placeholder
+.browser-placeholder {
+  border: 1px dashed $border;
+  border-radius: $radius-sm;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: $text-muted;
+  background: rgba($bg-primary, 0.5);
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  &.warning {
+    border-color: $warning;
+    background: rgba($warning, 0.05);
+    color: $text-secondary;
+  }
+
+  p {
+    font-size: 0.9rem;
+    margin: 0;
+  }
+
+  small {
+    display: block;
+    font-size: 0.75rem;
+    color: $text-muted;
+    margin-top: 0.25rem;
+  }
+}

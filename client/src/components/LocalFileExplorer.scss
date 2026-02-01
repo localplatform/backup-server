@@ -1,0 +1,83 @@
+@use '../styles/variables' as *;
+
+.local-file-explorer {
+  flex: 1;
+  overflow-y: auto;
+  background: $bg-card;
+}
+
+.explorer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+
+  &:hover {
+    background: $bg-hover;
+  }
+
+  .chevron {
+    transition: transform 0.15s;
+    color: $text-muted;
+
+    &.open {
+      transform: rotate(90deg);
+    }
+  }
+
+  .icon {
+    color: $text-muted;
+    flex-shrink: 0;
+
+    &.folder {
+      color: $warning;
+    }
+  }
+
+  .entry-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .entry-size {
+    color: $text-muted;
+    font-size: 0.75rem;
+  }
+}
+
+.explorer-error {
+  padding: 1rem;
+  color: $danger;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.explorer-empty {
+  padding: 2rem 1rem;
+  color: $text-muted;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.explorer-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  color: $text-muted;
+  font-size: 0.85rem;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

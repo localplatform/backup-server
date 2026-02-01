@@ -1,0 +1,40 @@
+@use '../styles/variables' as *;
+
+.status-badge {
+  display: inline-block;
+  padding: 0.2em 0.6em;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: capitalize;
+
+  &.sm {
+    font-size: 0.7rem;
+    padding: 0.15em 0.5em;
+  }
+
+  &.success {
+    background: rgba($success, 0.15);
+    color: $success;
+  }
+
+  &.warning {
+    background: rgba($warning, 0.15);
+    color: $warning;
+  }
+
+  &.danger {
+    background: rgba($danger, 0.15);
+    color: $danger;
+  }
+
+  &.info {
+    background: rgba($info, 0.15);
+    color: $info;
+  }
+
+  &.muted {
+    background: rgba($text-muted, 0.15);
+    color: $text-muted;
+  }
+}

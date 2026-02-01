@@ -1,0 +1,55 @@
+@use '../styles/variables' as *;
+
+// Page header component
+.page-header-component {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  background: $bg-secondary;
+  border-bottom: 1px solid $border;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+
+  h1 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+  }
+}
+
+.header-stats {
+  display: flex;
+  gap: 0.75rem;
+
+  .stat {
+    font-size: 0.8rem;
+    color: $text-muted;
+    padding: 0.2rem 0.65rem;
+    background: rgba($text-muted, 0.08);
+    border-radius: 9999px;
+  }
+
+  .stat-running {
+    color: $info;
+    background: rgba($info, 0.1);
+  }
+
+  .stat-failed {
+    color: $danger;
+    background: rgba($danger, 0.1);
+  }
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}

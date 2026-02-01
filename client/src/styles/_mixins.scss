@@ -1,0 +1,51 @@
+@use 'variables' as *;
+
+@mixin card {
+  background: $bg-card;
+  border: 1px solid $border;
+  border-radius: $radius;
+  padding: 1.5rem;
+}
+
+@mixin button($bg: $primary, $hover: $primary-dark) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: $bg;
+  color: white;
+  border: none;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background 0.15s;
+
+  &:hover:not(:disabled) {
+    background: $hover;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+@mixin input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: $bg-input;
+  color: $text-primary;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  font-size: 0.875rem;
+
+  &:focus {
+    outline: none;
+    border-color: $primary;
+  }
+
+  &::placeholder {
+    color: $text-muted;
+  }
+}

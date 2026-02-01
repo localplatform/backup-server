@@ -1,0 +1,169 @@
+@use '../styles/variables' as *;
+
+$row-columns: 1.5fr 1.2fr 80px 100px 140px 80px 80px;
+
+// Page — full width, no max-width
+.servers-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+// Empty state
+.empty-state-servers {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 5rem 2rem;
+  color: $text-muted;
+
+  svg {
+    opacity: 0.3;
+  }
+  p {
+    font-size: 1rem;
+  }
+}
+
+// Table
+.servers-table {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.servers-table-head {
+  display: grid;
+  grid-template-columns: 1.5fr 1.2fr 80px 100px 140px 80px 80px;
+  padding: 0.6rem 1.5rem;
+  background: $bg-primary;
+  border-bottom: 1px solid $border;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: $text-muted;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+}
+
+// Row
+.server-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1.2fr 80px 100px 140px 80px 80px;
+  align-items: center;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid $border;
+  transition: background 0.1s;
+  cursor: pointer;
+  width: 100%;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: $bg-hover;
+  }
+
+  &.status-error {
+    background: rgba($danger, 0.03);
+  }
+}
+
+// Columns
+.col-name {
+  min-width: 0;
+
+  a {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: $text-primary;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+
+    &:hover {
+      color: $primary;
+    }
+  }
+}
+
+.col-hostname {
+  font-size: 0.85rem;
+  color: $text-secondary;
+  font-family: 'Courier New', monospace;
+}
+
+.col-port,
+.col-user {
+  font-size: 0.85rem;
+  color: $text-secondary;
+}
+
+.col-ssh-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: $text-muted;
+
+  &.status-connected {
+    background: $success;
+  }
+
+  &.status-error {
+    background: $danger;
+  }
+
+  &.status-pending {
+    background: $warning;
+  }
+}
+
+.col-rsync {
+  font-size: 0.85rem;
+  color: $text-secondary;
+}
+
+.col-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: $radius-sm;
+  background: transparent;
+  color: $text-muted;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+
+  &:hover {
+    background: rgba($text-muted, 0.12);
+    color: $text-primary;
+  }
+}
+
+.btn-icon-danger:hover {
+  background: rgba($danger, 0.12);
+  color: $danger;
+}

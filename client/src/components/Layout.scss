@@ -1,0 +1,89 @@
+@use '../styles/variables' as *;
+
+.layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 240px;
+  background: $bg-secondary;
+  border-right: 1px solid $border;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  font-weight: 600;
+  font-size: 1.1rem;
+  border-bottom: 1px solid $border;
+  color: $primary;
+}
+
+.sidebar-nav {
+  list-style: none;
+  padding: 0.5rem;
+  flex: 1;
+
+  li a {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: $radius-sm;
+    color: $text-secondary;
+    font-size: 0.9rem;
+    transition: all 0.15s;
+
+    &:hover {
+      background: $bg-hover;
+      color: $text-primary;
+    }
+
+    &.active {
+      background: rgba($primary, 0.15);
+      color: $primary;
+    }
+  }
+}
+
+.ws-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.8rem;
+  border-top: 1px solid $border;
+  color: $text-muted;
+
+  &.connected .ws-dot {
+    background: $success;
+  }
+
+  &.disconnected .ws-dot {
+    background: $danger;
+  }
+}
+
+.ws-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.main-content {
+  flex: 1;
+  margin-left: 240px;
+  height: 100vh;
+  overflow-y: auto;
+}

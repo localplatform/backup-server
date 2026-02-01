@@ -1,0 +1,16 @@
+{
+  "name": "backup-server",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "build": "npm run build -w client && npm run build -w server",
+    "build:client": "npm run build -w client",
+    "build:server": "npm run build -w server",
+    "dev": "npm run build -w client && npm run dev -w server",
+    "start": "node server/dist/index.js"
+  }
+}

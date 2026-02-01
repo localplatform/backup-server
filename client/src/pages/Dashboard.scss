@@ -1,0 +1,125 @@
+@use '../styles/variables' as *;
+
+.stat-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: $radius;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &.blue { background: rgba($primary, 0.15); color: $primary; }
+    &.green { background: rgba($success, 0.15); color: $success; }
+    &.cyan { background: rgba($info, 0.15); color: $info; }
+    &.red { background: rgba($danger, 0.15); color: $danger; }
+  }
+
+  .stat-info {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-size: 0.8rem;
+    color: $text-secondary;
+  }
+
+  .stat-detail {
+    width: 100%;
+    font-size: 0.75rem;
+    color: $text-muted;
+    border-top: 1px solid $border;
+    padding-top: 0.5rem;
+    margin-top: 0.25rem;
+  }
+}
+
+// Dashboard tables with grid layout
+.dashboard-table {
+  padding: 0;
+
+  h3 {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid $border;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .table-grid {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .table-grid-head {
+    display: grid;
+    padding: 0.6rem 1.25rem;
+    background: $bg-primary;
+    border-bottom: 1px solid $border;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: $text-muted;
+  }
+
+  .table-grid-row {
+    display: grid;
+    align-items: center;
+    padding: 0.65rem 1.25rem;
+    border-bottom: 1px solid $border;
+    transition: background 0.1s;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    &:hover {
+      background: $bg-hover;
+    }
+
+    a {
+      color: $text-primary;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+
+      &:hover {
+        color: $primary;
+      }
+    }
+
+    .col-secondary {
+      color: $text-secondary;
+      font-size: 0.85rem;
+    }
+  }
+}
+
+// Servers table grid (3 columns)
+.dashboard-servers-table {
+  .table-grid-head,
+  .table-grid-row {
+    grid-template-columns: 1.5fr 1.2fr 130px;
+  }
+}
+
+// Jobs table grid (3 columns)
+.dashboard-jobs-table {
+  .table-grid-head,
+  .table-grid-row {
+    grid-template-columns: 1.5fr 130px 1.2fr;
+  }
+}

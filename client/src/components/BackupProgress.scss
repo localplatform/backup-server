@@ -1,0 +1,72 @@
+@use '../styles/variables' as *;
+
+.backup-progress {
+  padding: 0.75rem;
+  background: $bg-primary;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  font-size: 0.85rem;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.progress-label {
+  font-weight: 600;
+}
+
+.progress-speed {
+  color: $text-muted;
+  font-size: 0.8rem;
+}
+
+.progress-bar {
+  height: 8px;
+  background: $bg-hover;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+  background: $primary;
+
+  &.completed {
+    background: $success;
+  }
+
+  &.failed {
+    background: $danger;
+  }
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: $text-muted;
+  margin-top: 0.4rem;
+
+  .progress-file {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 70%;
+  }
+
+  .progress-count {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+}
+
+.progress-summary {
+  margin-top: 0.5rem;
+  color: $success;
+  font-size: 0.8rem;
+}
