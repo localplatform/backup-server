@@ -2,7 +2,6 @@
 
 Monorepo : `backup-server-rs/` (Rust/Axum backend, port 3000) + `client/` (React/Vite/SASS, port 5173 avec proxy vers le back).
 Deux processus via PM2 : back (binaire Rust compilé) + front (Vite dev server).
-`server/` contient l'ancien backend Node.js, conservé comme référence uniquement.
 
 ## IMPORTANT — Build avant de tester
 
@@ -106,5 +105,4 @@ cargo check                                 # Vérifier la compilation
   - `hooks/` — Hooks React (WebSocket, data fetching)
   - `pages/` — Composants page
   - `components/` — Composants UI réutilisables
-- `server/` — Ancien backend Node.js (référence uniquement, ne pas modifier)
 - `server/data/` — Données runtime (SQLite DB, clés SSH). Gitignored.
