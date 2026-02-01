@@ -6,8 +6,8 @@ import './JobDetailPanel.scss';
 
 interface ActiveFile {
   path: string;
-  transferred_bytes: number;
-  total_bytes: number;
+  transferredBytes: number;
+  totalBytes: number;
   percent: number;
 }
 
@@ -48,10 +48,10 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
         const p = payload as any;
         setProgress({
           percent: p.percent,
-          checkedFiles: p.checkedFiles,
-          totalFiles: p.totalFiles,
-          speed: p.speed,
-          currentFile: p.currentFile,
+          checkedFiles: p.filesProcessed ?? p.checkedFiles ?? 0,
+          totalFiles: p.totalFiles ?? 0,
+          speed: p.speed ?? '',
+          currentFile: p.currentFile ?? '',
           currentFileBytes: p.currentFileBytes || 0,
           currentFileTotal: p.currentFileTotal || 0,
           currentFilePercent: p.currentFilePercent || 0,
@@ -131,7 +131,7 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
         <div className="panel-section">
           <h4>Active Transfers ({activeFiles.length})</h4>
           <div className="active-files-list">
-            {[...activeFiles].sort((a, b) => b.total_bytes - a.total_bytes).map((file, idx) => (
+            {[...activeFiles].sort((a, b) => b.totalBytes - a.totalBytes).map((file, idx) => (
               <div key={idx} className="active-file-item">
                 <div className="active-file-header">
                   <FileText size={14} />
@@ -140,7 +140,7 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
                   </span>
                   <span className="active-file-percent">{file.percent.toFixed(1)}%</span>
                 </div>
-                {file.total_bytes >= 10 * 1024 * 1024 && (
+                {file.totalBytes >= 10 * 1024 * 1024 && (
                   <div className="active-file-progress">
                     <div className="progress-bar">
                       <div
@@ -149,7 +149,7 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
                       />
                     </div>
                     <span className="active-file-size">
-                      {formatBytes(file.transferred_bytes)} / {formatBytes(file.total_bytes)}
+                      {formatBytes(file.transferredBytes)} / {formatBytes(file.totalBytes)}
                     </span>
                   </div>
                 )}

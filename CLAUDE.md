@@ -5,7 +5,7 @@ Deux processus via PM2 : back (binaire Rust compilé) + front (Vite dev server).
 
 ## IMPORTANT — Build avant de tester
 
-**Toujours builder le backend Rust ET le frontend avant de demander de tester :**
+**Toujours builder le backend Rust ET le frontend avant de confirmer que c'est prêt à tester :**
 
 ```bash
 cargo build --release -p backup-server-rs   # Backend Rust

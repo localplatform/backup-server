@@ -210,7 +210,7 @@ async fn run_backup_inner(state: Arc<AppState>, job_id: &str) -> anyhow::Result<
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
                 let msg_type = parsed.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 let payload = parsed.get("payload").cloned().unwrap_or_default();
-                let msg_job_id = payload.get("job_id").or(payload.get("jobId"))
+                let msg_job_id = payload.get("jobId").or(payload.get("job_id"))
                     .and_then(|v| v.as_str()).unwrap_or("");
 
                 if msg_job_id != jid6 {
@@ -219,9 +219,9 @@ async fn run_backup_inner(state: Arc<AppState>, job_id: &str) -> anyhow::Result<
 
                 match msg_type {
                     "backup:completed" => {
-                        let total_bytes = payload.get("total_bytes")
+                        let total_bytes = payload.get("totalBytes").or(payload.get("total_bytes"))
                             .and_then(|v| v.as_i64()).unwrap_or(0);
-                        let total_files = payload.get("total_files")
+                        let total_files = payload.get("totalFiles").or(payload.get("total_files"))
                             .and_then(|v| v.as_i64()).unwrap_or(0);
                         if let Some(tx) = done_tx3.lock().await.take() {
                             let _ = tx.send(Ok((total_bytes, total_files)));

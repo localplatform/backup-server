@@ -4,8 +4,8 @@ import './BackupProgress.scss';
 
 interface ActiveFile {
   path: string;
-  transferred_bytes: number;
-  total_bytes: number;
+  transferredBytes: number;
+  totalBytes: number;
   percent: number;
 }
 
@@ -38,10 +38,10 @@ export default function BackupProgress({ jobId }: Props) {
         const p = payload as any;
         setProgress({
           percent: p.percent,
-          checkedFiles: p.checkedFiles,
-          totalFiles: p.totalFiles,
-          speed: p.speed,
-          currentFile: p.currentFile,
+          checkedFiles: p.filesProcessed ?? p.checkedFiles ?? 0,
+          totalFiles: p.totalFiles ?? 0,
+          speed: p.speed ?? '',
+          currentFile: p.currentFile ?? '',
           currentFileBytes: p.currentFileBytes,
           currentFileTotal: p.currentFileTotal,
           currentFilePercent: p.currentFilePercent,
@@ -102,7 +102,7 @@ export default function BackupProgress({ jobId }: Props) {
         <>
           {activeFiles.length > 0 ? (
             <div className="progress-active-files">
-              {[...activeFiles].sort((a, b) => b.total_bytes - a.total_bytes).map((file, idx) => (
+              {[...activeFiles].sort((a, b) => b.totalBytes - a.totalBytes).map((file, idx) => (
                 <div key={idx} className="progress-active-file">
                   <span className="progress-file" title={file.path}>
                     {file.path.split('/').pop() || file.path}

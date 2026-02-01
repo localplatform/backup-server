@@ -233,7 +233,8 @@ async fn handle_agent_socket(socket: WebSocket, state: Arc<AppState>) {
                 // Forward other agent messages as UI broadcasts if relevant
                 if msg_type.starts_with("backup:") {
                     if let Some(payload) = parsed.get("payload") {
-                        state.ui.broadcast(msg_type, payload.clone());
+                        let camel = snake_to_camel_keys(payload.clone());
+                        state.ui.broadcast(msg_type, camel);
                     }
                 }
             }
@@ -261,4 +262,36 @@ async fn handle_agent_socket(socket: WebSocket, state: Arc<AppState>) {
     }
 
     send_task.abort();
+}
+
+/// Convert all keys in a JSON Value from snake_case to camelCase (recursive)
+fn snake_to_camel_keys(value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut new_map = serde_json::Map::new();
+            for (k, v) in map {
+                let camel = snake_to_camel(&k);
+                new_map.insert(camel, snake_to_camel_keys(v));
+            }
+            Value::Object(new_map)
+        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(snake_to_camel_keys).collect()),
+        other => other,
+    }
+}
+
+fn snake_to_camel(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut capitalize_next = false;
+    for ch in s.chars() {
+        if ch == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(ch.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
