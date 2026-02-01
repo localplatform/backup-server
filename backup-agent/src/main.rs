@@ -3,10 +3,11 @@
 //! Rust-based backup agent with delta-sync capabilities.
 
 use anyhow::Result;
-use backup_agent::{api, config::Config, utils, daemon::shutdown::ShutdownCoordinator};
+use backup_agent::{api, config::Config, utils, daemon::shutdown::ShutdownCoordinator, ws};
 use clap::Parser;
 use std::path::PathBuf;
 use std::net::SocketAddr;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -55,13 +56,36 @@ async fn main() -> Result<()> {
     // Create shutdown coordinator
     let shutdown_coordinator = ShutdownCoordinator::new();
 
-    // Create API router
-    let app = api::create_router();
+    // Create shared app state (shared between HTTP router and WS client)
+    let app_state = api::create_app_state();
+
+    // Create API router with shared state
+    let app = api::create_router_with_state(app_state.clone());
+
+    // Spawn reverse WebSocket client to connect to the backup server
+    let ws_shutdown = CancellationToken::new();
+    let ws_shutdown_clone = ws_shutdown.clone();
+    let server_url = config.server.url.clone();
+    let server_id = config.server.server_id.clone();
+    let agent_id = config.agent.id.clone();
+    let ws_app_state = app_state.clone();
+
+    let ws_client_handle = tokio::spawn(async move {
+        let client = ws::client::AgentWsClient::new(
+            server_url,
+            server_id,
+            agent_id,
+            ws_app_state,
+            ws_shutdown_clone,
+        );
+        client.run().await;
+    });
 
     tracing::info!("Listening on http://{}", addr);
     tracing::info!("Health endpoint: http://{}/health", addr);
     tracing::info!("Version endpoint: http://{}/version", addr);
     tracing::info!("WebSocket endpoint: ws://{}/ws", addr);
+    tracing::info!("Server connection: {}/ws/agent", config.server.url);
 
     // Start server
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -75,8 +99,14 @@ async fn main() -> Result<()> {
     // Wait for shutdown signal
     shutdown_coordinator.wait_for_signal().await;
 
+    // Signal WS client to stop
+    ws_shutdown.cancel();
+
     // Graceful shutdown
     shutdown_coordinator.shutdown().await;
+
+    // Wait for WS client to finish
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), ws_client_handle).await;
 
     // Wait for server to finish (with timeout)
     match tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await {

@@ -1,5 +1,5 @@
-import net from 'net';
 import { serverModel } from '../models/server.js';
+import { isAgentConnected } from '../websocket/agentRegistry.js';
 import { broadcast } from '../websocket/server.js';
 import { logger } from '../utils/logger.js';
 
@@ -13,54 +13,20 @@ export interface PingStatus {
 const statuses = new Map<string, PingStatus>();
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
-function tcpPing(host: string, port: number, timeoutMs = 3000): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const socket = new net.Socket();
-
-    socket.setTimeout(timeoutMs);
-
-    socket.on('connect', () => {
-      const latency = Date.now() - start;
-      socket.destroy();
-      resolve(latency);
-    });
-
-    socket.on('timeout', () => {
-      socket.destroy();
-      reject(new Error('timeout'));
-    });
-
-    socket.on('error', (err) => {
-      socket.destroy();
-      reject(err);
-    });
-
-    socket.connect(port, host);
-  });
-}
-
-async function pingAllServers(): Promise<void> {
+function checkAllServers(): void {
   const servers = serverModel.findAll();
   const now = new Date().toISOString();
 
-  const results = await Promise.allSettled(
-    servers.map(async (server) => {
-      try {
-        const latency = await tcpPing(server.hostname, server.port);
-        return { serverId: server.id, reachable: true, latencyMs: latency, lastCheckedAt: now };
-      } catch {
-        return { serverId: server.id, reachable: false, latencyMs: null, lastCheckedAt: now };
-      }
-    })
-  );
-
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      const status = result.value;
-      statuses.set(status.serverId, status);
-      broadcast('server:ping', status as unknown as Record<string, unknown>);
-    }
+  for (const server of servers) {
+    const reachable = isAgentConnected(server.id);
+    const status: PingStatus = {
+      serverId: server.id,
+      reachable,
+      latencyMs: reachable ? 0 : null,
+      lastCheckedAt: now,
+    };
+    statuses.set(server.id, status);
+    broadcast('server:ping', status as unknown as Record<string, unknown>);
   }
 }
 
@@ -69,15 +35,11 @@ export function startPingService(intervalMs = 10000): void {
 
   logger.info({ intervalMs }, 'Starting server ping service');
 
-  // Initial ping
-  pingAllServers().catch(err => {
-    logger.error({ err }, 'Initial ping cycle failed');
-  });
+  // Initial check
+  checkAllServers();
 
   intervalHandle = setInterval(() => {
-    pingAllServers().catch(err => {
-      logger.error({ err }, 'Ping cycle failed');
-    });
+    checkAllServers();
   }, intervalMs);
 }
 

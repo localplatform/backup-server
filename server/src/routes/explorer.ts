@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { serverModel } from '../models/server.js';
-import { explorePath } from '../services/remoteExplorer.js';
+import { isAgentConnected, requestFromAgent } from '../websocket/agentRegistry.js';
 import { logger } from '../utils/logger.js';
 
 const router = Router();
@@ -12,18 +12,32 @@ router.get('/:id/explore', async (req: Request, res: Response) => {
     if (!server) return res.status(404).json({ error: 'Server not found' });
 
     const remotePath = (req.query.path as string) || '/';
-    const entries = await explorePath(server, remotePath);
-    res.json(entries);
+
+    if (!isAgentConnected(server.id)) {
+      return res.status(503).json({ error: 'Agent is not connected' });
+    }
+
+    // Request file listing from the agent via WebSocket
+    const result = await requestFromAgent(server.id, {
+      type: 'fs:browse',
+      payload: { path: remotePath },
+    }) as Record<string, unknown>;
+
+    if (result.error) {
+      return res.status(500).json({ error: result.error });
+    }
+
+    res.json(result.entries || []);
   } catch (err: any) {
     logger.error({ err, serverId: req.params.id, path: req.query.path }, 'Failed to explore remote path');
 
     const message = err instanceof Error ? err.message : 'Exploration failed';
 
-    if (err?.code === 3 || message.includes('Permission denied') || message.includes('EACCES')) {
+    if (message.includes('Permission denied') || message.includes('EACCES')) {
       return res.status(403).json({ error: 'Permission denied', code: 'PERMISSION_DENIED', path: req.query.path });
     }
 
-    if (err?.code === 2 || message.includes('No such file')) {
+    if (message.includes('No such file') || message.includes('not found')) {
       return res.status(404).json({ error: 'Path not found', code: 'PATH_NOT_FOUND', path: req.query.path });
     }
 

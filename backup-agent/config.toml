@@ -2,7 +2,7 @@
 
 [agent]
 id = "backup-client-01"
-port = 8080
+port = 9990
 data_dir = "/var/lib/backup-agent"
 
 [server]

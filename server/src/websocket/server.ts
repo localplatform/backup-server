@@ -1,5 +1,4 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import type { Server as HttpServer } from 'http';
 import { logger } from '../utils/logger.js';
 import type { WsEventType } from './events.js';
 
@@ -48,8 +47,8 @@ function cleanupQueue(jobId: string): void {
   messageQueues.delete(jobId);
 }
 
-export function setupWebSocket(server: HttpServer): WebSocketServer {
-  wss = new WebSocketServer({ server, path: '/ws' });
+export function setupWebSocket(): WebSocketServer {
+  wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws) => {
     logger.info('WebSocket client connected');

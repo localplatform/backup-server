@@ -9,6 +9,7 @@ pub mod executor;
 pub mod fs;
 pub mod sync;
 pub mod transfer;
+pub mod update;
 pub mod utils;
 pub mod ws;
 

@@ -121,5 +121,16 @@ export function migrate(): void {
   //   }
   // }
 
+  // Migration: agent columns on source_servers
+  if (!serverColumnNames.includes('agent_status')) {
+    db.exec("ALTER TABLE source_servers ADD COLUMN agent_status TEXT NOT NULL DEFAULT 'disconnected'");
+  }
+  if (!serverColumnNames.includes('agent_version')) {
+    db.exec('ALTER TABLE source_servers ADD COLUMN agent_version TEXT');
+  }
+  if (!serverColumnNames.includes('agent_last_seen')) {
+    db.exec('ALTER TABLE source_servers ADD COLUMN agent_last_seen TEXT');
+  }
+
   console.log('[DB] Migration completed successfully');
 }

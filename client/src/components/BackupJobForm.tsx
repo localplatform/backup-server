@@ -65,8 +65,8 @@ export default function BackupJobForm({ initial, onSubmit, onCancel, loading }: 
               >
                 <div className="server-card-header">
                   <strong>{server.name}</strong>
-                  <div className={`status-badge ssh-${server.ssh_status}`}>
-                    {server.ssh_status}
+                  <div className={`status-badge ssh-${(server as any).agent_status || 'disconnected'}`}>
+                    {(server as any).agent_status || 'disconnected'}
                   </div>
                 </div>
                 <div className="server-card-body">
@@ -123,10 +123,10 @@ export default function BackupJobForm({ initial, onSubmit, onCancel, loading }: 
             <div className="browser-placeholder">
               <p>Select a server to browse files</p>
             </div>
-          ) : selectedServer?.ssh_status !== 'connected' ? (
+          ) : (selectedServer as any)?.agent_status !== 'connected' ? (
             <div className="browser-placeholder warning">
-              <p>Server not connected</p>
-              <small>SSH status: {selectedServer?.ssh_status}</small>
+              <p>Agent not connected</p>
+              <small>Status: {(selectedServer as any)?.agent_status || 'disconnected'}</small>
             </div>
           ) : (
             <FileExplorer

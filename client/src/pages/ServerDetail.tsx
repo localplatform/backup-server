@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Key, Wifi, WifiOff, Package, ArrowLeft, Pencil, Server as ServerIcon } from 'lucide-react';
+import { ArrowLeft, Pencil, Server as ServerIcon, RefreshCw } from 'lucide-react';
 import { useServer, useUpdateServer, useDeleteServer } from '../hooks/useServers.js';
 import { serversApi } from '../api/endpoints.js';
 import StatusBadge from '../components/StatusBadge.js';
@@ -10,6 +10,17 @@ import FileExplorer from '../components/FileExplorer.js';
 import toast from 'react-hot-toast';
 import './ServerDetail.scss';
 
+function AgentStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { variant: 'success' | 'info' | 'warning' | 'danger' | 'muted'; label: string }> = {
+    connected: { variant: 'success', label: 'Connected' },
+    disconnected: { variant: 'muted', label: 'Disconnected' },
+    updating: { variant: 'warning', label: 'Updating...' },
+    error: { variant: 'danger', label: 'Error' },
+  };
+  const { variant, label } = map[status] || { variant: 'muted' as const, label: status };
+  return <StatusBadge status={label} variant={variant} size="sm" />;
+}
+
 export default function ServerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -17,7 +28,6 @@ export default function ServerDetail() {
   const updateServer = useUpdateServer();
   const deleteServer = useDeleteServer();
   const [editing, setEditing] = useState(false);
-  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
   if (isLoading) return <div className="page"><div className="empty-state">Loading...</div></div>;
@@ -34,6 +44,10 @@ export default function ServerDetail() {
     }
   };
 
+  const agentStatus = (server as any).agent_status || 'disconnected';
+  const agentVersion = (server as any).agent_version;
+  const agentLastSeen = (server as any).agent_last_seen;
+
   return (
     <>
       <PageHeader
@@ -41,8 +55,8 @@ export default function ServerDetail() {
         title={server.name}
         stats={[
           {
-            label: server.ssh_status,
-            variant: server.ssh_status === 'error' ? ('failed' as const) : 'default',
+            label: agentStatus,
+            variant: agentStatus === 'error' ? ('failed' as const) : 'default',
           },
         ]}
         leftExtra={
@@ -93,80 +107,52 @@ export default function ServerDetail() {
             <dt>Hostname</dt><dd>{server.hostname}</dd>
             <dt>Port</dt><dd>{server.port}</dd>
             <dt>SSH User</dt><dd>{server.ssh_user}</dd>
-            <dt>Rsync</dt><dd>{server.rsync_installed ? 'Installed' : 'Not installed'}</dd>
             <dt>Last Seen</dt><dd>{server.last_seen_at ? new Date(server.last_seen_at).toLocaleString() : 'Never'}</dd>
           </dl>
-          {server.ssh_error && (
-            <div className="error-box">{server.ssh_error}</div>
-          )}
         </div>
 
         <div className="card">
-          <h3>SSH Setup</h3>
-          <div className="setup-actions">
-            <div className="setup-step">
-              <span className="step-num">1</span>
+          <h3>Agent</h3>
+          <dl className="detail-list">
+            <dt>Status</dt>
+            <dd><AgentStatusBadge status={agentStatus} /></dd>
+            <dt>Version</dt>
+            <dd>{agentVersion || 'Unknown'}</dd>
+            <dt>Last Seen</dt>
+            <dd>{agentLastSeen ? new Date(agentLastSeen).toLocaleString() : 'Never'}</dd>
+          </dl>
+
+          <div className="setup-actions" style={{ marginTop: '1rem' }}>
+            {agentStatus === 'connected' && (
               <button
                 className="btn btn-sm"
                 disabled={busy !== null}
-                onClick={() => handleAction('generate', () => serversApi.generateKey(server.id))}
+                onClick={() => handleAction('update', () => serversApi.updateAgent(server.id))}
               >
-                <Key size={14} />
-                {busy === 'generate' ? 'Generating...' : 'Generate SSH Key'}
+                <RefreshCw size={14} />
+                {busy === 'update' ? 'Updating...' : 'Update Agent'}
               </button>
-              {(server.ssh_status !== 'pending') && <StatusBadge status="key_generated" size="sm" />}
-            </div>
-
-            <div className="setup-step">
-              <span className="step-num">2</span>
-              <div className="register-key-row">
-                <input
-                  type="password"
-                  placeholder="SSH password (one-time)"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button
-                  className="btn btn-sm"
-                  disabled={busy !== null || !password || server.ssh_status === 'pending'}
-                  onClick={() => handleAction('register', async () => {
-                    await serversApi.registerKey(server.id, password);
-                    setPassword('');
-                  })}
-                >
-                  {busy === 'register' ? 'Registering...' : 'Register Key'}
-                </button>
+            )}
+            {agentStatus === 'disconnected' && (
+              <div className="error-box" style={{ marginBottom: '0.5rem' }}>
+                Agent is not connected. It may be starting up or the service may need to be restarted on the remote server.
               </div>
-            </div>
-
-            <div className="setup-step">
-              <span className="step-num">3</span>
-              <button
-                className="btn btn-sm btn-success"
-                disabled={busy !== null || server.ssh_status === 'pending'}
-                onClick={() => handleAction('test', () => serversApi.testConnection(server.id))}
-              >
-                {busy === 'test' ? <><Wifi size={14} /> Testing...</> : <><Wifi size={14} /> Test Connection</>}
-              </button>
-            </div>
-
-            <div className="setup-step">
-              <span className="step-num">4</span>
-              <button
-                className="btn btn-sm"
-                disabled={busy !== null || server.ssh_status !== 'connected'}
-                onClick={() => handleAction('provision', () => serversApi.provision(server.id))}
-              >
-                <Package size={14} />
-                {busy === 'provision' ? 'Provisioning...' : 'Install Rsync'}
-              </button>
-            </div>
+            )}
+            {agentStatus === 'error' && (
+              <div className="error-box" style={{ marginBottom: '0.5rem' }}>
+                Agent encountered an error. Check the agent logs on the remote server.
+              </div>
+            )}
+            {agentStatus === 'updating' && (
+              <div style={{ color: 'var(--color-warning)' }}>
+                Agent is updating, please wait...
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-        {server.ssh_status === 'connected' && (
+        {agentStatus === 'connected' && (
           <div className="card" style={{ marginTop: '1rem' }}>
             <h3>File Explorer</h3>
             <FileExplorer serverId={server.id} />

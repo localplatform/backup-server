@@ -11,6 +11,9 @@ export interface Server {
   ssh_status: 'pending' | 'key_generated' | 'key_registered' | 'connected' | 'error';
   ssh_error: string | null;
   rsync_installed: number;
+  agent_status: 'disconnected' | 'connected' | 'updating' | 'error';
+  agent_version: string | null;
+  agent_last_seen: string | null;
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
@@ -77,18 +80,13 @@ export const serversApi = {
   update: (id: string, data: Partial<Server>) =>
     api.put<Server>(`/servers/${id}`, data).then(r => r.data),
   delete: (id: string) => api.delete(`/servers/${id}`),
-  testConnection: (id: string) =>
-    api.post<{ connected: boolean }>(`/servers/${id}/test-connection`).then(r => r.data),
-  generateKey: (id: string) =>
-    api.post<{ publicKey: string }>(`/servers/${id}/generate-key`).then(r => r.data),
-  registerKey: (id: string, password: string) =>
-    api.post<{ success: boolean }>(`/servers/${id}/register-key`, { password }).then(r => r.data),
-  provision: (id: string) =>
-    api.post<{ rsyncInstalled: boolean }>(`/servers/${id}/provision`).then(r => r.data),
   pingStatus: () =>
     api.get<Array<{ serverId: string; reachable: boolean; latencyMs: number | null; lastCheckedAt: string }>>('/servers/ping-status').then(r => r.data),
   explore: (id: string, path: string) =>
     api.get<RemoteEntry[]>(`/servers/${id}/explore`, { params: { path } }).then(r => r.data),
+  // Agent management
+  updateAgent: (id: string) =>
+    api.post<{ status: string }>(`/agent/update/${id}`).then(r => r.data),
 };
 
 // Storage types

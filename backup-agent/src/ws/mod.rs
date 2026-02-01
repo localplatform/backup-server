@@ -4,6 +4,7 @@
 //! - Agent → Server: Progress updates, status changes, logs
 //! - Server → Agent: Control commands (pause, resume, cancel)
 
+pub mod client;
 pub mod handler;
 
 use axum::{
@@ -46,6 +47,15 @@ pub enum WsEvent {
     /// Log message
     #[serde(rename = "agent:log")]
     LogMessage { level: String, message: String },
+
+    /// Filesystem browse response (sent to server via reverse WS)
+    #[serde(rename = "fs:browse:response")]
+    FsBrowseResponse {
+        request_id: String,
+        entries: Vec<crate::api::filesystem::FsEntry>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
 }
 
 /// Progress information for a backup job
@@ -112,7 +122,7 @@ pub enum WsCommand {
 #[derive(Clone)]
 pub struct WsState {
     /// Broadcast channel for sending events to all connected clients
-    tx: broadcast::Sender<WsEvent>,
+    pub tx: broadcast::Sender<WsEvent>,
 }
 
 impl WsState {
@@ -135,7 +145,7 @@ impl WsState {
     }
 
     /// Subscribe to events (for new WebSocket connections)
-    fn subscribe(&self) -> broadcast::Receiver<WsEvent> {
+    pub fn subscribe(&self) -> broadcast::Receiver<WsEvent> {
         self.tx.subscribe()
     }
 }

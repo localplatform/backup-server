@@ -12,7 +12,9 @@ export type WsEventType =
   | 'job:deleted'
   | 'version:created'
   | 'version:completed'
-  | 'version:deleted';
+  | 'version:deleted'
+  | 'agent:connected'
+  | 'agent:disconnected';
 
 export interface WsMessage {
   type: WsEventType;

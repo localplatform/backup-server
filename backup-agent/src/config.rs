@@ -34,6 +34,10 @@ pub struct ServerConfig {
 
     /// Pre-shared key or JWT token
     pub token: String,
+
+    /// Server ID this agent is associated with (set during deployment)
+    #[serde(default)]
+    pub server_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,12 +144,13 @@ impl Config {
                     .ok()
                     .and_then(|h| h.into_string().ok())
                     .unwrap_or_else(|| "backup-agent-01".to_string()),
-                port: 8080,
+                port: 9990,
                 data_dir: PathBuf::from("/var/lib/backup-agent"),
             },
             server: ServerConfig {
                 url: "http://localhost:3000".to_string(),
                 token: "".to_string(),
+                server_id: None,
             },
             sync: SyncConfig {
                 chunk_size: default_chunk_size(),

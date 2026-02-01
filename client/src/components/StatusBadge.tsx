@@ -2,6 +2,7 @@ import './StatusBadge.scss';
 
 interface Props {
   status: string;
+  variant?: 'success' | 'info' | 'warning' | 'danger' | 'muted';
   size?: 'sm' | 'md';
 }
 
@@ -18,8 +19,8 @@ const statusColors: Record<string, string> = {
   cancelled: 'warning',
 };
 
-export default function StatusBadge({ status, size = 'md' }: Props) {
-  const color = statusColors[status] || 'muted';
+export default function StatusBadge({ status, variant, size = 'md' }: Props) {
+  const color = variant || statusColors[status] || 'muted';
   return (
     <span className={`status-badge ${color} ${size}`}>
       {status.replace(/_/g, ' ')}

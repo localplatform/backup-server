@@ -4,9 +4,10 @@ import { config } from './config.js';
 import { migrate } from './db/migrate.js';
 import { closeDb, flushDatabase } from './db/connection.js';
 import { setupWebSocket, getWss } from './websocket/server.js';
+import { setupAgentWebSocket, closeAllAgentConnections, getAgentWss } from './websocket/agentRegistry.js';
 import { initSchedules, stopAllSchedules } from './services/backupScheduler.js';
 import { startPingService, stopPingService } from './services/serverPingService.js';
-import { sshPool } from './services/sshConnectionPool.js';
+
 import { logger } from './utils/logger.js';
 import { backupDatabase } from './services/dbBackup.js';
 import { migrateExistingBackups } from './services/backupMigration.js';
@@ -27,8 +28,25 @@ await migrateServerFolderNames();
 const app = createApp();
 const server = http.createServer(app);
 
-// Setup WebSocket
-setupWebSocket(server);
+// Setup WebSocket servers (noServer mode — manual upgrade routing)
+const uiWss = setupWebSocket();
+const agWss = setupAgentWebSocket();
+
+server.on('upgrade', (request, socket, head) => {
+  const { pathname } = new URL(request.url || '/', `http://${request.headers.host}`);
+
+  if (pathname === '/ws/agent') {
+    agWss.handleUpgrade(request, socket, head, (ws) => {
+      agWss.emit('connection', ws, request);
+    });
+  } else if (pathname === '/ws') {
+    uiWss.handleUpgrade(request, socket, head, (ws) => {
+      uiWss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
 // Initialize cron schedules
 initSchedules();
@@ -52,15 +70,21 @@ function shutdown(signal: string) {
     logger.info('[SHUTDOWN] Stopping ping service...');
     stopPingService();
 
-    // 2. Close active SSH connections
-    logger.info('[SHUTDOWN] Closing SSH connections...');
-    sshPool.closeAll();
+    // 2. Close agent WebSocket connections
+    logger.info('[SHUTDOWN] Closing agent connections...');
+    closeAllAgentConnections();
 
-    // 3. Close WebSocket connections
+    // 4. Close UI WebSocket connections
     const wss = getWss();
     if (wss) {
       logger.info('[SHUTDOWN] Closing WebSocket connections...');
       wss.clients.forEach((client) => {
+        client.close();
+      });
+    }
+    const agentWss = getAgentWss();
+    if (agentWss) {
+      agentWss.clients.forEach((client) => {
         client.close();
       });
     }

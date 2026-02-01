@@ -13,8 +13,8 @@ export default function Servers() {
   const deleteServer = useDeleteServer();
   const [showForm, setShowForm] = useState(false);
 
-  const connected = servers.filter(s => s.ssh_status === 'connected').length;
-  const errors = servers.filter(s => s.ssh_status === 'error').length;
+  const connected = servers.filter(s => (s as any).agent_status === 'connected').length;
+  const errors = servers.filter(s => (s as any).agent_status === 'error').length;
 
   return (
     <div className="servers-page">
@@ -69,36 +69,40 @@ export default function Servers() {
             <span className="col-hostname">Hostname</span>
             <span className="col-port">Port</span>
             <span className="col-user">User</span>
-            <span className="col-ssh-status">SSH Status</span>
-            <span className="col-rsync">Rsync</span>
+            <span className="col-ssh-status">Agent Status</span>
+            <span className="col-rsync">Version</span>
             <span className="col-actions" />
           </div>
-          {servers.map(s => (
-            <div key={s.id} className={`server-row ${s.ssh_status === 'error' ? 'status-error' : ''}`}>
-              <span className="col-name">
-                <Link to={`/servers/${s.id}`}>{s.name}</Link>
-              </span>
-              <span className="col-hostname">{s.hostname}</span>
-              <span className="col-port">{s.port}</span>
-              <span className="col-user">{s.ssh_user}</span>
-              <span className="col-ssh-status">
-                <span className={`status-dot status-${s.ssh_status}`} />
-                <StatusBadge status={s.ssh_status} size="sm" />
-              </span>
-              <span className="col-rsync">{s.rsync_installed ? 'Yes' : 'No'}</span>
-              <span className="col-actions" onClick={e => e.stopPropagation()}>
-                <button
-                  className="btn-icon btn-icon-danger"
-                  title="Delete"
-                  onClick={() => {
-                    if (confirm('Delete this server?')) deleteServer.mutate(s.id);
-                  }}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </span>
-            </div>
-          ))}
+          {servers.map(s => {
+            const agentStatus = (s as any).agent_status || 'disconnected';
+            const agentVersion = (s as any).agent_version;
+            return (
+              <div key={s.id} className={`server-row ${agentStatus === 'error' ? 'status-error' : ''}`}>
+                <span className="col-name">
+                  <Link to={`/servers/${s.id}`}>{s.name}</Link>
+                </span>
+                <span className="col-hostname">{s.hostname}</span>
+                <span className="col-port">{s.port}</span>
+                <span className="col-user">{s.ssh_user}</span>
+                <span className="col-ssh-status">
+                  <span className={`status-dot status-${agentStatus}`} />
+                  <StatusBadge status={agentStatus} size="sm" />
+                </span>
+                <span className="col-rsync">{agentVersion || '-'}</span>
+                <span className="col-actions" onClick={e => e.stopPropagation()}>
+                  <button
+                    className="btn-icon btn-icon-danger"
+                    title="Delete"
+                    onClick={() => {
+                      if (confirm('Delete this server?')) deleteServer.mutate(s.id);
+                    }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

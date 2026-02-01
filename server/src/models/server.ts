@@ -5,6 +5,9 @@ import { getDb } from '../db/connection.js';
 export const SshStatus = z.enum(['pending', 'key_generated', 'key_registered', 'connected', 'error']);
 export type SshStatus = z.infer<typeof SshStatus>;
 
+export const AgentStatus = z.enum(['disconnected', 'connected', 'updating', 'error']);
+export type AgentStatus = z.infer<typeof AgentStatus>;
+
 export const ServerSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
@@ -16,6 +19,9 @@ export const ServerSchema = z.object({
   ssh_error: z.string().nullable().default(null),
   rsync_installed: z.number().int().default(0),
   use_sudo: z.number().int().default(0),
+  agent_status: AgentStatus.default('disconnected'),
+  agent_version: z.string().nullable().default(null),
+  agent_last_seen: z.string().nullable().default(null),
   last_seen_at: z.string().nullable().default(null),
   created_at: z.string(),
   updated_at: z.string(),

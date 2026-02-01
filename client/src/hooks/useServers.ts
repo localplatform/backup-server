@@ -16,6 +16,7 @@ export function useServers() {
   return useQuery({
     queryKey: ['servers'],
     queryFn: serversApi.list,
+    refetchOnMount: 'always',
   });
 }
 
@@ -33,7 +34,7 @@ export function useCreateServer() {
     mutationFn: serversApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servers'] });
-      toast.success('Server added and connected');
+      toast.success('Server added, agent deployed');
     },
     onError: (err) => toast.error(apiError(err)),
   });

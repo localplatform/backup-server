@@ -1,13 +1,11 @@
 import { CronJob } from 'cron';
 import { backupJobModel } from '../models/backupJob.js';
-import { runBackupJob, isJobRunning } from './backupOrchestrator.js';
-import { runBackupJobWithAgent, isJobRunning as isAgentJobRunning } from './agentOrchestrator.js';
+import { runBackupJobWithAgent, isJobRunning } from './agentOrchestrator.js';
 import { logger } from '../utils/logger.js';
 
 const scheduledJobs = new Map<string, CronJob>();
 
 export function scheduleJob(jobId: string, cronExpression: string): void {
-  // Remove existing schedule if any
   unscheduleJob(jobId);
 
   try {
@@ -15,23 +13,14 @@ export function scheduleJob(jobId: string, cronExpression: string): void {
       const job = backupJobModel.findById(jobId);
       if (!job || !job.enabled) return;
 
-      // Check if job is already running (either rsync or agent)
-      if (isJobRunning(jobId) || isAgentJobRunning(jobId)) {
+      if (isJobRunning(jobId)) {
         logger.warn({ jobId }, 'Skipping scheduled run: job already running');
         return;
       }
 
-      // TODO: Add server-level flag to choose between rsync and agent
-      // For now, use agent-based backup by default
-      const useAgent = true;
-
-      logger.info({ jobId, name: job.name, method: useAgent ? 'agent' : 'rsync' }, 'Starting scheduled backup');
+      logger.info({ jobId, name: job.name }, 'Starting scheduled backup');
       try {
-        if (useAgent) {
-          await runBackupJobWithAgent(job);
-        } else {
-          await runBackupJob(job);
-        }
+        await runBackupJobWithAgent(job);
       } catch (err) {
         logger.error({ jobId, error: err instanceof Error ? err.message : String(err) }, 'Scheduled backup failed');
       }
