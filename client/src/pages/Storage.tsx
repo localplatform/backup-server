@@ -142,7 +142,7 @@ export default function Storage() {
                   <h3>Backup Contents</h3>
                   <div className="version-details">
                     <span className="detail-item">
-                      <strong>Version:</strong> {new Date(selectedVersionData.version_timestamp).toLocaleString()}
+                      <strong>Version:</strong> {parseVersionTimestamp(selectedVersionData.version_timestamp)}
                     </span>
                     <span className="detail-item">
                       <strong>Status:</strong> <span className={`status-badge status-${selectedVersionData.status}`}>{selectedVersionData.status}</span>
@@ -163,6 +163,13 @@ export default function Storage() {
       )}
     </div>
   );
+}
+
+function parseVersionTimestamp(ts: string): string {
+  const iso = ts.replace('_', 'T').replace(/-(\d{2})-(\d{2})$/, ':$1:$2');
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return ts;
+  return date.toLocaleString();
 }
 
 function formatBytes(bytes: number): string {

@@ -79,6 +79,20 @@ export const backupVersionModel = {
     }
   },
 
+  updateCompletion(id: string, bytesTransferred: number, filesTransferred: number): void {
+    getDb().prepare(
+      `UPDATE backup_versions
+       SET status = 'completed', bytes_transferred = ?, files_transferred = ?, completed_at = ?
+       WHERE id = ?`
+    ).run(bytesTransferred, filesTransferred, new Date().toISOString(), id);
+  },
+
+  updateFailed(id: string): void {
+    getDb().prepare(
+      `UPDATE backup_versions SET status = 'failed', completed_at = ? WHERE id = ?`
+    ).run(new Date().toISOString(), id);
+  },
+
   delete(id: string): boolean {
     const result = getDb().prepare('DELETE FROM backup_versions WHERE id = ?').run(id);
     return result.changes > 0;

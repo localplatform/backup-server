@@ -11,7 +11,6 @@ interface Props {
     remote_paths: string[];
     cron_schedule: string;
     rsync_options: string;
-    max_parallel: number;
   };
   onSubmit: (data: {
     server_id: string;
@@ -19,7 +18,6 @@ interface Props {
     remote_paths: string[];
     cron_schedule: string | null;
     rsync_options: string;
-    max_parallel: number;
   }) => void;
   onCancel: () => void;
   loading?: boolean;
@@ -31,7 +29,6 @@ export default function BackupJobForm({ initial, onSubmit, onCancel, loading }: 
   const [name, setName] = useState(initial?.name || '');
   const [remotePaths, setRemotePaths] = useState<string[]>(initial?.remote_paths || []);
   const [cronSchedule, setCronSchedule] = useState(initial?.cron_schedule || '');
-  const [maxParallel, setMaxParallel] = useState(initial?.max_parallel || 4);
   const [pathInput, setPathInput] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -42,7 +39,6 @@ export default function BackupJobForm({ initial, onSubmit, onCancel, loading }: 
       remote_paths: remotePaths,
       cron_schedule: cronSchedule || null,
       rsync_options: '',
-      max_parallel: maxParallel,
     });
   };
 
@@ -118,21 +114,6 @@ export default function BackupJobForm({ initial, onSubmit, onCancel, loading }: 
             <CronInput value={cronSchedule} onChange={setCronSchedule} />
           </div>
 
-          <div className="form-group">
-            <label>Max Parallel Transfers</label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {[1, 2, 3, 4].map(n => (
-                <button
-                  key={n}
-                  type="button"
-                  className={`btn btn-sm ${maxParallel === n ? '' : 'btn-secondary'}`}
-                  onClick={() => setMaxParallel(n)}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Colonne 3 : File Browser */}

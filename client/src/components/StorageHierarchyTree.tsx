@@ -193,7 +193,7 @@ export default function StorageHierarchyTree({ onVersionSelect, selectedVersion 
                               >
                                 <div className="version-info">
                                   <span className="version-timestamp">
-                                    {new Date(version.version_timestamp).toLocaleString()}
+                                    {parseVersionTimestamp(version.version_timestamp)}
                                   </span>
                                   <span className={`version-status status-${version.status}`}>
                                     {version.status}
@@ -207,7 +207,7 @@ export default function StorageHierarchyTree({ onVersionSelect, selectedVersion 
                                     className="btn-icon btn-danger-ghost"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setDeleteConfirm({ type: 'version', id: version.id, name: new Date(version.version_timestamp).toLocaleString() });
+                                      setDeleteConfirm({ type: 'version', id: version.id, name: parseVersionTimestamp(version.version_timestamp) });
                                     }}
                                     title="Delete this version"
                                   >
@@ -256,6 +256,15 @@ export default function StorageHierarchyTree({ onVersionSelect, selectedVersion 
       )}
     </>
   );
+}
+
+/** Parse version timestamp format "YYYY-MM-DD_HH-MM-SS" into a readable date string */
+function parseVersionTimestamp(ts: string): string {
+  // Convert "2025-01-15_14-30-22" → "2025-01-15T14:30:22"
+  const iso = ts.replace('_', 'T').replace(/-(\d{2})-(\d{2})$/, ':$1:$2');
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return ts; // fallback to raw string
+  return date.toLocaleString();
 }
 
 function formatBytes(bytes: number): string {

@@ -92,7 +92,6 @@ export default function BackupJobs() {
                 remote_paths: JSON.parse(editingJob.remote_paths),
                 cron_schedule: editingJob.cron_schedule || '',
                 rsync_options: editingJob.rsync_options,
-                max_parallel: editingJob.max_parallel,
               }}
               onSubmit={data => {
                 updateJob.mutate({ id: editingJob.id, data }, { onSuccess: () => setEditingJob(null) });

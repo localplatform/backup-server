@@ -128,6 +128,8 @@ export async function runBackupJobWithAgent(job: BackupJob, fullBackup = false):
   // Acquire job-level semaphore to ensure only 1 job runs at a time
   await jobSemaphore.acquire();
 
+  let version: ReturnType<typeof backupVersionModel.create> | null = null;
+
   try {
     if (runningJobs.has(job.id)) {
       logger.warn({ jobId: job.id }, 'Job already running');
@@ -210,7 +212,7 @@ export async function runBackupJobWithAgent(job: BackupJob, fullBackup = false):
     fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
 
     // Create version record in DB
-    const version = backupVersionModel.create({
+    version = backupVersionModel.create({
       job_id: job.id,
       log_id: log.id,
       version_timestamp: versionTimestamp,
@@ -241,16 +243,25 @@ export async function runBackupJobWithAgent(job: BackupJob, fullBackup = false):
         totalBytes: progress.total_bytes,
         speed: formatSpeed(progress.bytes_per_second),
         currentFile: progress.current_file || 'Processing...',
+        // Per-file progress (legacy single file)
+        currentFileBytes: progress.current_file_bytes,
+        currentFileTotal: progress.current_file_total,
+        currentFilePercent: progress.current_file_percent,
+        // Active parallel transfers
+        activeFiles: progress.active_files || [],
       });
 
       logger.debug({ jobId: job.id, progress: `${progress.percent.toFixed(1)}%` }, 'Backup progress');
     };
 
     // Setup completion handlers
-    const completedHandler = (payload: { job_id: string; total_bytes: number }) => {
+    let completed = false;
+    const completedHandler = (payload: { job_id: string; total_bytes: number; total_files?: number }) => {
       if (payload.job_id !== job.id) return;
       logger.info({ jobId: job.id, totalBytes: payload.total_bytes }, 'Backup completed on agent');
-      totalBytes += payload.total_bytes;
+      totalBytes = payload.total_bytes;
+      if (payload.total_files) totalFiles = payload.total_files;
+      completed = true;
     };
 
     const failedHandler = (payload: { job_id: string; error: string }) => {
@@ -282,12 +293,9 @@ export async function runBackupJobWithAgent(job: BackupJob, fullBackup = false):
 
       logger.info({ jobId: job.id, result }, 'Agent backup started');
 
-      // Wait for completion (agent will send events via WebSocket)
-      // In a real implementation, this would wait for the backup:completed or backup:failed event
-      // For now, we'll use a simple polling mechanism
-      let completed = false;
+      // Wait for completion via WebSocket events (completed/failed handlers set the flag)
       let attempts = 0;
-      const maxAttempts = 600; // 10 minutes (1 second intervals)
+      const maxAttempts = 3600; // 1 hour max
 
       while (!completed && attempts < maxAttempts && !hasError) {
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -300,9 +308,10 @@ export async function runBackupJobWithAgent(job: BackupJob, fullBackup = false):
           await agent.cancelBackup({ job_id: job.id });
           throw new Error('Job cancelled by user');
         }
+      }
 
-        // TODO: Implement proper event-based completion detection
-        // For MVP, assume completion after reasonable timeout or explicit signal
+      if (!completed && !hasError) {
+        throw new Error('Backup timed out after 1 hour');
       }
 
       if (hasError) {
@@ -323,22 +332,20 @@ export async function runBackupJobWithAgent(job: BackupJob, fullBackup = false):
     const duration = Date.now() - startTime;
     const durationSecs = Math.floor(duration / 1000);
 
-    backupJobModel.updateLastRun(job.id);
     backupJobModel.updateStatus(job.id, hasError ? 'failed' : 'completed');
 
     backupLogModel.update(log.id, {
       status: hasError ? 'failed' : 'completed',
-      files_count: totalFiles,
+      files_transferred: totalFiles,
       bytes_transferred: totalBytes,
-      duration_secs: durationSecs,
-      completed_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
     });
 
     // Update version record
     backupVersionModel.updateCompletion(version.id, totalBytes, totalFiles);
 
     // Cleanup old versions
-    await cleanupOldVersions(job.id);
+    await cleanupOldVersions(job.id, job.max_versions || 7);
 
     // Send completion broadcast
     broadcast('backup:completed', {
@@ -374,6 +381,11 @@ export async function runBackupJobWithAgent(job: BackupJob, fullBackup = false):
     logger.error({ jobId: job.id, error: err.message, stack: err.stack }, 'Backup job failed');
 
     backupJobModel.updateStatus(job.id, 'failed');
+
+    // Mark version as failed if it was created
+    if (version) {
+      backupVersionModel.updateFailed(version.id);
+    }
 
     broadcast('backup:failed', {
       jobId: job.id,

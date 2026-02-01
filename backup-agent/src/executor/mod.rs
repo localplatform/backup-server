@@ -8,15 +8,42 @@
 //! - WebSocket event emission
 
 use crate::fs::walker::{walk_directory, WalkOptions, FileInfo};
-use crate::transfer::progress::{ProgressTracker, TransferProgress, format_speed};
+use crate::transfer::progress::format_speed;
 use crate::transfer::progress_stream::ProgressStream;
-use crate::ws::{WsState, WsEvent, BackupProgressPayload};
+use crate::ws::{WsState, WsEvent, BackupProgressPayload, ActiveFileProgress};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::{RwLock, broadcast};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use tokio::sync::{RwLock, Semaphore};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn, error};
 use tokio_util::io::ReaderStream;
+
+/// Concurrency weight budget — total permits in the semaphore.
+/// Small files take 1 permit (up to 64 concurrent), large files take all 64 (sequential).
+const CONCURRENCY_BUDGET: usize = 64;
+
+/// Returns the number of semaphore permits a file should acquire based on its size.
+/// This automatically adapts parallelism: many small files run concurrently,
+/// large files limit concurrency to avoid bandwidth saturation.
+///
+/// | File size       | Permits | Effective concurrency |
+/// |-----------------|---------|----------------------|
+/// | < 10 MB         | 1       | 64                   |
+/// | 10 – 100 MB     | 2       | 32                   |
+/// | 100 – 500 MB    | 16      | 4                    |
+/// | 500 MB – 1 GB   | 32      | 2                    |
+/// | > 1 GB          | 64      | 1                    |
+fn concurrency_weight(file_size: u64) -> u32 {
+    match file_size {
+        0..=10_485_759              => 1,  // < 10 MB
+        10_485_760..=104_857_599    => 2,  // 10 – 100 MB
+        104_857_600..=524_287_999   => 16, // 100 – 500 MB
+        524_288_000..=1_073_741_823 => 32, // 500 MB – 1 GB
+        _ => 64,                           // > 1 GB
+    }
+}
 
 /// Backup job configuration
 #[derive(Debug, Clone)]
@@ -35,26 +62,33 @@ pub struct BackupResult {
     pub duration_secs: u64,
 }
 
+/// Tracks an active file transfer (shared between upload task and progress broadcaster)
+struct ActiveFileState {
+    path: String,
+    total_bytes: u64,
+    transferred: AtomicU64,
+}
+
 /// Main backup executor
 pub struct BackupExecutor {
     ws_state: Arc<RwLock<WsState>>,
-    shutdown_rx: Option<broadcast::Receiver<()>>,
+    cancel_token: CancellationToken,
 }
 
 impl BackupExecutor {
-    /// Create a new backup executor
+    /// Create a new backup executor (no cancellation support)
     pub fn new(ws_state: Arc<RwLock<WsState>>) -> Self {
         Self {
             ws_state,
-            shutdown_rx: None,
+            cancel_token: CancellationToken::new(),
         }
     }
 
-    /// Create a new backup executor with shutdown support
-    pub fn with_shutdown(ws_state: Arc<RwLock<WsState>>, shutdown_rx: broadcast::Receiver<()>) -> Self {
+    /// Create a new backup executor with cancellation support
+    pub fn with_cancel(ws_state: Arc<RwLock<WsState>>, cancel_token: CancellationToken) -> Self {
         Self {
             ws_state,
-            shutdown_rx: Some(shutdown_rx),
+            cancel_token,
         }
     }
 
@@ -62,7 +96,7 @@ impl BackupExecutor {
     pub async fn execute(&mut self, job: BackupJob) -> Result<BackupResult, Box<dyn std::error::Error + Send + Sync>> {
         let start_time = std::time::Instant::now();
 
-        info!("Starting backup execution for job: {}", job.job_id);
+        info!("Starting backup execution for job: {} (adaptive concurrency, budget: {})", job.job_id, CONCURRENCY_BUDGET);
 
         // Send backup:started event
         self.broadcast_event(WsEvent::BackupStarted {
@@ -74,6 +108,11 @@ impl BackupExecutor {
         let mut total_size = 0u64;
 
         for path in &job.paths {
+            // Check cancellation before scanning
+            if self.cancel_token.is_cancelled() {
+                return Err("Backup cancelled".into());
+            }
+
             match self.scan_path(path, &mut all_files, &mut total_size).await {
                 Ok(_) => {
                     info!("Scanned path: {} ({} files, {} bytes)",
@@ -90,74 +129,298 @@ impl BackupExecutor {
             }
         }
 
-        info!("Total files to backup: {}, total size: {} bytes", all_files.len(), total_size);
+        // Sort files smallest-first for optimal concurrency:
+        // small files process with high parallelism, large files later with lower parallelism
+        all_files.sort_by_key(|f| f.size);
 
-        // Create progress tracker
-        let mut tracker = ProgressTracker::new(total_size, all_files.len());
+        let total_files_count = all_files.len();
+        info!("Total files to backup: {}, total size: {} bytes (sorted by size, smallest first)", total_files_count, total_size);
 
-        // Process each file
-        let mut transferred_bytes = 0u64;
-        let mut files_processed = 0usize;
-        let mut last_progress_time = std::time::Instant::now();
-        const PROGRESS_INTERVAL_MS: u64 = 250; // 4 updates per second
+        // Shared counters for completed work
+        let completed_bytes = Arc::new(AtomicU64::new(0));
+        let completed_files = Arc::new(AtomicUsize::new(0));
 
-        info!("Starting file processing loop for {} files", all_files.len());
+        // Shared map of currently active file transfers (for progress reporting)
+        let active_files: Arc<RwLock<HashMap<usize, Arc<ActiveFileState>>>> =
+            Arc::new(RwLock::new(HashMap::new()));
 
-        for file_info in &all_files {
-            info!("Processing file: {}", file_info.path.display());
-            // Check for shutdown signal before processing each file
-            if let Some(ref mut rx) = self.shutdown_rx {
-                if rx.try_recv().is_ok() {
-                    warn!("Shutdown signal received, stopping backup after current file");
-                    self.broadcast_event(WsEvent::BackupFailed {
-                        job_id: job.job_id.clone(),
-                        error: "Backup interrupted by shutdown signal".to_string(),
-                    }).await;
-                    return Err("Shutdown signal received".into());
+        // Weighted semaphore: total budget = CONCURRENCY_BUDGET permits.
+        // Each file acquires 1-16 permits based on size (see concurrency_weight()).
+        let semaphore = Arc::new(Semaphore::new(CONCURRENCY_BUDGET));
+
+        // Spawn a single progress broadcast task that reads all shared state
+        let progress_ws = Arc::clone(&self.ws_state);
+        let progress_job_id = job.job_id.clone();
+        let progress_completed_bytes = Arc::clone(&completed_bytes);
+        let progress_completed_files = Arc::clone(&completed_files);
+        let progress_active_files = Arc::clone(&active_files);
+        let progress_cancel = self.cancel_token.clone();
+        let progress_total_bytes = total_size;
+        let progress_total_files = total_files_count;
+
+        let progress_task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(250));
+            let mut last_total = 0u64;
+            let mut last_time = std::time::Instant::now();
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {}
+                    _ = progress_cancel.cancelled() => { break; }
                 }
+
+                if progress_cancel.is_cancelled() {
+                    break;
+                }
+
+                let done_bytes = progress_completed_bytes.load(Ordering::Relaxed);
+                let done_files = progress_completed_files.load(Ordering::Relaxed);
+
+                // Read active files and compute in-flight bytes
+                let active_map = progress_active_files.read().await;
+                let mut inflight_bytes = 0u64;
+                let mut file_list: Vec<ActiveFileProgress> = Vec::with_capacity(active_map.len());
+
+                for (_id, state) in active_map.iter() {
+                    let transferred = state.transferred.load(Ordering::Relaxed);
+                    inflight_bytes += transferred;
+                    file_list.push(ActiveFileProgress {
+                        path: state.path.clone(),
+                        transferred_bytes: transferred,
+                        total_bytes: state.total_bytes,
+                        percent: if state.total_bytes > 0 {
+                            ((transferred as f64 / state.total_bytes as f64) * 100.0).min(100.0)
+                        } else {
+                            0.0
+                        },
+                    });
+                }
+                drop(active_map);
+
+                let total_transferred = done_bytes + inflight_bytes;
+
+                // Calculate speed
+                let now = std::time::Instant::now();
+                let elapsed_window = now.duration_since(last_time).as_secs_f64();
+                let bytes_per_second = if elapsed_window > 0.1 {
+                    let diff = total_transferred.saturating_sub(last_total);
+                    (diff as f64 / elapsed_window) as u64
+                } else {
+                    0
+                };
+                last_total = total_transferred;
+                last_time = now;
+
+                let percent = if progress_total_bytes > 0 {
+                    ((total_transferred as f64 / progress_total_bytes as f64) * 100.0).min(100.0)
+                } else {
+                    0.0
+                };
+
+                let eta_seconds = if bytes_per_second > 0 {
+                    progress_total_bytes.saturating_sub(total_transferred) / bytes_per_second
+                } else {
+                    0
+                };
+
+                // Use first active file as "current file" for legacy compatibility
+                let current_file = file_list.first().map(|f| f.path.clone());
+                let (cf_bytes, cf_total, cf_percent) = file_list.first()
+                    .map(|f| (f.transferred_bytes, f.total_bytes, f.percent))
+                    .unwrap_or((0, 0, 0.0));
+
+                let payload = BackupProgressPayload {
+                    job_id: progress_job_id.clone(),
+                    percent,
+                    transferred_bytes: total_transferred,
+                    total_bytes: progress_total_bytes,
+                    bytes_per_second,
+                    eta_seconds,
+                    current_file,
+                    files_processed: done_files,
+                    total_files: progress_total_files,
+                    speed: format_speed(bytes_per_second),
+                    current_file_bytes: cf_bytes,
+                    current_file_total: cf_total,
+                    current_file_percent: cf_percent,
+                    active_files: file_list,
+                };
+
+                let state = progress_ws.read().await;
+                state.broadcast(WsEvent::BackupProgress(payload));
             }
+        });
 
-            match self.process_file(&job, file_info, &mut tracker).await {
-                Ok(bytes) => {
-                    transferred_bytes += bytes;
-                    files_processed += 1;
+        // Spawn parallel file upload tasks with adaptive concurrency
+        info!("Starting parallel file processing: {} files, adaptive concurrency (budget: {})", total_files_count, CONCURRENCY_BUDGET);
 
-                    // Update progress
-                    let progress = tracker.update(transferred_bytes);
+        let mut handles = Vec::with_capacity(all_files.len());
 
-                    // Throttle progress events to 4x/second
-                    let now = std::time::Instant::now();
-                    if now.duration_since(last_progress_time).as_millis() >= PROGRESS_INTERVAL_MS as u128 {
-                        self.send_progress(&job.job_id, progress, &file_info.relative_path).await;
-                        last_progress_time = now;
+        for (idx, file_info) in all_files.into_iter().enumerate() {
+            let sem = Arc::clone(&semaphore);
+            let job_id = job.job_id.clone();
+            let server_url = job.server_url.clone();
+            let global_completed_bytes = Arc::clone(&completed_bytes);
+            let global_completed_files = Arc::clone(&completed_files);
+            let active_map = Arc::clone(&active_files);
+            let cancel = self.cancel_token.clone();
+
+            let handle = tokio::spawn(async move {
+                // Check cancellation before acquiring permit
+                if cancel.is_cancelled() {
+                    return Err::<u64, Box<dyn std::error::Error + Send + Sync>>(
+                        "Cancelled".into()
+                    );
+                }
+
+                // Acquire weighted semaphore permits based on file size
+                let weight = concurrency_weight(file_info.size);
+                let permit = tokio::select! {
+                    result = sem.acquire_many(weight) => {
+                        result.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                            Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Semaphore closed: {}", e)))
+                        })?
+                    }
+                    _ = cancel.cancelled() => {
+                        return Err("Cancelled".into());
+                    }
+                };
+
+                // Check cancellation after acquiring permit
+                if cancel.is_cancelled() {
+                    drop(permit);
+                    return Err("Cancelled".into());
+                }
+
+                // Register in active files map
+                let file_state = Arc::new(ActiveFileState {
+                    path: file_info.path.display().to_string(),
+                    total_bytes: file_info.size,
+                    transferred: AtomicU64::new(0),
+                });
+                {
+                    let mut map = active_map.write().await;
+                    map.insert(idx, Arc::clone(&file_state));
+                }
+
+                info!("Processing file: {}", file_info.path.display());
+
+                let result = upload_file(
+                    &job_id,
+                    &server_url,
+                    &file_info,
+                    &file_state,
+                    &cancel,
+                ).await;
+
+                // Remove from active files map
+                {
+                    let mut map = active_map.write().await;
+                    map.remove(&idx);
+                }
+
+                // Drop permit to allow next task
+                drop(permit);
+
+                match result {
+                    Ok(bytes) => {
+                        global_completed_bytes.fetch_add(bytes, Ordering::Relaxed);
+                        global_completed_files.fetch_add(1, Ordering::Relaxed);
+                        Ok(bytes)
+                    }
+                    Err(e) => {
+                        warn!("Failed to process file {}: {}", file_info.path.display(), e);
+                        global_completed_files.fetch_add(1, Ordering::Relaxed);
+                        Err(e)
+                    }
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        // Wait for all tasks to complete
+        let mut total_processed = 0usize;
+        for handle in handles {
+            match handle.await {
+                Ok(Ok(_bytes)) => {
+                    total_processed += 1;
+                }
+                Ok(Err(e)) => {
+                    if self.cancel_token.is_cancelled() {
+                        info!("Task cancelled: {}", e);
+                    } else {
+                        warn!("File upload task failed: {}", e);
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to process file {}: {}", file_info.path.display(), e);
-                    // Continue with next file instead of failing entire backup
+                    if e.is_cancelled() {
+                        info!("Task was aborted");
+                    } else {
+                        warn!("File upload task panicked: {}", e);
+                    }
                 }
             }
         }
 
-        // Send final progress update at 100%
-        let final_progress = tracker.update(transferred_bytes);
-        self.send_progress(&job.job_id, final_progress, &PathBuf::from("Completed")).await;
+        // Stop the progress broadcast task
+        self.cancel_token.cancel(); // No-op if not already cancelled
+        let _ = progress_task.await;
+
+        // Read final values from atomics
+        let final_transferred = completed_bytes.load(Ordering::Relaxed);
+        let final_files = completed_files.load(Ordering::Relaxed);
 
         let duration = start_time.elapsed();
         let duration_secs = duration.as_secs();
 
-        info!("Backup completed: {} files, {} bytes, {} seconds",
-              files_processed, transferred_bytes, duration_secs);
+        // Check if we were cancelled
+        if self.cancel_token.is_cancelled() && total_processed < total_files_count {
+            info!("Backup cancelled: {} files processed out of {}", total_processed, total_files_count);
+
+            self.broadcast_event(WsEvent::BackupFailed {
+                job_id: job.job_id.clone(),
+                error: "Backup cancelled by user".to_string(),
+            }).await;
+
+            return Err("Backup cancelled by user".into());
+        }
+
+        info!("Backup completed: {} files ({} successful), {} bytes, {} seconds",
+              final_files, total_processed, final_transferred, duration_secs);
+
+        // Send final 100% progress
+        {
+            let payload = BackupProgressPayload {
+                job_id: job.job_id.clone(),
+                percent: 100.0,
+                transferred_bytes: final_transferred,
+                total_bytes: total_size,
+                bytes_per_second: 0,
+                eta_seconds: 0,
+                current_file: Some("Completed".to_string()),
+                files_processed: final_files,
+                total_files: total_files_count,
+                speed: "0.00 B/s".to_string(),
+                current_file_bytes: 0,
+                current_file_total: 0,
+                current_file_percent: 0.0,
+                active_files: vec![],
+            };
+            let state = self.ws_state.read().await;
+            state.broadcast(WsEvent::BackupProgress(payload));
+        }
 
         // Send backup:completed event
         self.broadcast_event(WsEvent::BackupCompleted {
             job_id: job.job_id.clone(),
-            total_bytes: transferred_bytes,
+            total_bytes: final_transferred,
+            total_files: final_files,
         }).await;
 
         Ok(BackupResult {
-            total_files: files_processed,
-            total_bytes: transferred_bytes,
+            total_files: final_files,
+            total_bytes: final_transferred,
             duration_secs,
         })
     }
@@ -195,220 +458,116 @@ impl BackupExecutor {
         Ok(())
     }
 
-    /// Process a single file - upload to backup server with compression and real-time progress
-    async fn process_file(
-        &self,
-        job: &BackupJob,
-        file_info: &FileInfo,
-        tracker: &ProgressTracker,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        let file_bytes_transferred = Arc::new(AtomicU64::new(0));
-        let total_bytes_before = tracker.progress().transferred_bytes;
-        let total_bytes_overall = tracker.progress().total_bytes;
-        let total_files = tracker.progress().total_files;
-        let files_processed = tracker.progress().files_processed;
-        // Open the file for reading
-        let file = match tokio::fs::File::open(&file_info.path).await {
-            Ok(f) => f,
-            Err(e) => {
-                error!("Failed to open file {}: {}", file_info.path.display(), e);
-                return Err(Box::new(e));
-            }
-        };
-
-        // Spawn progress monitoring task
-        let file_bytes_clone = Arc::clone(&file_bytes_transferred);
-        let ws_state_clone = Arc::clone(&self.ws_state);
-        let job_id_clone = job.job_id.clone();
-        let file_path_clone = file_info.path.clone();
-        let total_bytes_clone = file_info.size;
-
-        let monitor_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(250));
-            let start_time = std::time::Instant::now();
-
-            loop {
-                interval.tick().await;
-                let current = file_bytes_clone.load(Ordering::Relaxed);
-                if current >= total_bytes_clone {
-                    break;
-                }
-
-                // Calculate speed
-                let elapsed = start_time.elapsed().as_secs_f64();
-                let bytes_per_second = if elapsed > 0.0 {
-                    (current as f64 / elapsed) as u64
-                } else {
-                    0
-                };
-
-                // Send progress update via WebSocket
-                let overall_transferred = total_bytes_before + current;
-                let percent = if total_bytes_overall > 0 {
-                    ((overall_transferred as f64 / total_bytes_overall as f64) * 100.0).min(100.0)
-                } else {
-                    0.0
-                };
-
-                let eta_seconds = if bytes_per_second > 0 {
-                    (total_bytes_clone - current) / bytes_per_second
-                } else {
-                    0
-                };
-
-                // Calculate per-file progress
-                let current_file_percent = if total_bytes_clone > 0 {
-                    ((current as f64 / total_bytes_clone as f64) * 100.0).min(100.0)
-                } else {
-                    0.0
-                };
-
-                // Format speed as human-readable string
-                let speed = format_speed(bytes_per_second);
-
-                let payload = BackupProgressPayload {
-                    job_id: job_id_clone.clone(),
-                    percent,
-                    transferred_bytes: overall_transferred,
-                    total_bytes: total_bytes_overall,
-                    bytes_per_second,
-                    eta_seconds,
-                    current_file: Some(file_path_clone.display().to_string()),
-                    files_processed,
-                    total_files,
-                    speed,
-                    // Per-file progress
-                    current_file_bytes: current,
-                    current_file_total: total_bytes_clone,
-                    current_file_percent,
-                };
-
-                let state = ws_state_clone.read().await;
-                state.broadcast(WsEvent::BackupProgress(payload));
-            }
-        });
-
-        // Only compress files smaller than 500 MB to avoid memory issues
-        const MAX_COMPRESS_SIZE: u64 = 500 * 1024 * 1024; // 500 MB
-        let use_compression = file_info.size < MAX_COMPRESS_SIZE;
-
-        let client = reqwest::Client::new();
-        let upload_url = format!("{}/api/files/upload", job.server_url);
-
-        // Create progress callback
-        let file_bytes_for_callback = Arc::clone(&file_bytes_transferred);
-        let progress_callback = Arc::new(move |bytes: u64| {
-            file_bytes_for_callback.store(bytes, Ordering::Relaxed);
-        });
-
-        let response = if use_compression {
-            // Compress small/medium files
-            use async_compression::tokio::bufread::ZstdEncoder;
-            use tokio::io::BufReader;
-
-            let buf_reader = BufReader::new(file);
-            let compressed = ZstdEncoder::with_quality(buf_reader, async_compression::Level::Default);
-            let stream = ReaderStream::new(compressed);
-            let progress_stream = ProgressStream::new(stream, progress_callback.clone());
-            let body = reqwest::Body::wrap_stream(progress_stream);
-
-            client
-                .post(&upload_url)
-                .header("x-job-id", &job.job_id)
-                .header("x-relative-path", file_info.relative_path.display().to_string())
-                .header("x-total-size", file_info.size.to_string())
-                .header("content-encoding", "zstd")
-                .body(body)
-                .send()
-                .await
-        } else {
-            // Upload large files uncompressed
-            let stream = ReaderStream::new(file);
-            let progress_stream = ProgressStream::new(stream, progress_callback);
-            let body = reqwest::Body::wrap_stream(progress_stream);
-
-            client
-                .post(&upload_url)
-                .header("x-job-id", &job.job_id)
-                .header("x-relative-path", file_info.relative_path.display().to_string())
-                .header("x-total-size", file_info.size.to_string())
-                .body(body)
-                .send()
-                .await
-        };
-
-        match response {
-            Ok(resp) if resp.status().is_success() => {
-                // Set final byte count to ensure monitoring task completes
-                file_bytes_transferred.store(file_info.size, Ordering::Relaxed);
-
-                // Wait for monitoring task to finish (it will exit when current >= total)
-                let _ = monitor_handle.await;
-
-                info!(
-                    "Uploaded {} bytes: {} -> {}",
-                    file_info.size,
-                    file_info.path.display(),
-                    upload_url
-                );
-                Ok(file_info.size)
-            }
-            Ok(resp) => {
-                // Abort monitoring task on failure
-                monitor_handle.abort();
-
-                let status = resp.status();
-                let error_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                error!(
-                    "Upload failed with status {}: {} -> {}. Error: {}",
-                    status,
-                    file_info.path.display(),
-                    upload_url,
-                    error_text
-                );
-                Err(format!("Upload failed: {} - {}", status, error_text).into())
-            }
-            Err(e) => {
-                // Abort monitoring task on error
-                monitor_handle.abort();
-
-                error!(
-                    "Upload request failed: {} -> {}. Error: {}",
-                    file_info.path.display(),
-                    upload_url,
-                    e
-                );
-                Err(Box::new(e))
-            }
-        }
-    }
-
-    /// Send progress update via WebSocket
-    async fn send_progress(&self, job_id: &str, progress: &TransferProgress, current_file: &Path) {
-        let payload = BackupProgressPayload {
-            job_id: job_id.to_string(),
-            percent: progress.percent_complete,
-            transferred_bytes: progress.transferred_bytes,
-            total_bytes: progress.total_bytes,
-            bytes_per_second: progress.bytes_per_second,
-            eta_seconds: progress.eta_seconds,
-            current_file: Some(current_file.display().to_string()),
-            files_processed: progress.files_processed,
-            total_files: progress.total_files,
-            speed: format_speed(progress.bytes_per_second),
-            // No per-file progress between files
-            current_file_bytes: 0,
-            current_file_total: 0,
-            current_file_percent: 0.0,
-        };
-
-        self.broadcast_event(WsEvent::BackupProgress(payload)).await;
-    }
-
     /// Broadcast an event to all WebSocket clients
     async fn broadcast_event(&self, event: WsEvent) {
         let state = self.ws_state.read().await;
         state.broadcast(event);
+    }
+}
+
+/// Upload a single file to the backup server
+async fn upload_file(
+    job_id: &str,
+    server_url: &str,
+    file_info: &FileInfo,
+    file_state: &Arc<ActiveFileState>,
+    cancel: &CancellationToken,
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    // Open the file for reading
+    let file = match tokio::fs::File::open(&file_info.path).await {
+        Ok(f) => f,
+        Err(e) => {
+            error!("Failed to open file {}: {}", file_info.path.display(), e);
+            return Err(Box::new(e));
+        }
+    };
+
+    // Only compress files smaller than 500 MB to avoid memory issues
+    const MAX_COMPRESS_SIZE: u64 = 500 * 1024 * 1024;
+    let use_compression = file_info.size < MAX_COMPRESS_SIZE;
+
+    let client = reqwest::Client::new();
+    let upload_url = format!("{}/api/files/upload", server_url);
+
+    // Progress callback updates the shared atomic
+    let file_state_clone = Arc::clone(file_state);
+    let progress_callback = Arc::new(move |bytes: u64| {
+        file_state_clone.transferred.store(bytes, Ordering::Relaxed);
+    });
+
+    // Build the request (with or without compression)
+    let request_future = if use_compression {
+        use async_compression::tokio::bufread::ZstdEncoder;
+        use tokio::io::BufReader;
+
+        let buf_reader = BufReader::new(file);
+        let compressed = ZstdEncoder::with_quality(buf_reader, async_compression::Level::Default);
+        let stream = ReaderStream::new(compressed);
+        let progress_stream = ProgressStream::new(stream, progress_callback);
+        let body = reqwest::Body::wrap_stream(progress_stream);
+
+        client
+            .post(&upload_url)
+            .header("x-job-id", job_id)
+            .header("x-relative-path", file_info.relative_path.display().to_string())
+            .header("x-total-size", file_info.size.to_string())
+            .header("content-encoding", "zstd")
+            .body(body)
+            .send()
+    } else {
+        let stream = ReaderStream::new(file);
+        let progress_stream = ProgressStream::new(stream, progress_callback);
+        let body = reqwest::Body::wrap_stream(progress_stream);
+
+        client
+            .post(&upload_url)
+            .header("x-job-id", job_id)
+            .header("x-relative-path", file_info.relative_path.display().to_string())
+            .header("x-total-size", file_info.size.to_string())
+            .body(body)
+            .send()
+    };
+
+    // Execute with cancellation support
+    let response = tokio::select! {
+        result = request_future => result,
+        _ = cancel.cancelled() => {
+            info!("Upload cancelled for {}", file_info.path.display());
+            return Err("Cancelled".into());
+        }
+    };
+
+    match response {
+        Ok(resp) if resp.status().is_success() => {
+            // Mark file as fully transferred
+            file_state.transferred.store(file_info.size, Ordering::Relaxed);
+
+            info!(
+                "Uploaded {} bytes: {}",
+                file_info.size,
+                file_info.path.display(),
+            );
+            Ok(file_info.size)
+        }
+        Ok(resp) => {
+            let status = resp.status();
+            let error_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            error!(
+                "Upload failed with status {}: {}. Error: {}",
+                status,
+                file_info.path.display(),
+                error_text
+            );
+            Err(format!("Upload failed: {} - {}", status, error_text).into())
+        }
+        Err(e) => {
+            error!(
+                "Upload request failed: {}. Error: {}",
+                file_info.path.display(),
+                e
+            );
+            Err(Box::new(e))
+        }
     }
 }
 
@@ -427,5 +586,17 @@ mod tests {
 
         assert_eq!(job.job_id, "test-job");
         assert_eq!(job.paths.len(), 1);
+    }
+
+    #[test]
+    fn test_concurrency_weight() {
+        assert_eq!(concurrency_weight(0), 1);              // 0 bytes → 1 permit (64 concurrent)
+        assert_eq!(concurrency_weight(512_000), 1);        // 500 KB → 1 permit (64 concurrent)
+        assert_eq!(concurrency_weight(1_048_576), 1);      // 1 MB → 1 permit (64 concurrent)
+        assert_eq!(concurrency_weight(5_000_000), 1);      // 5 MB → 1 permit (64 concurrent)
+        assert_eq!(concurrency_weight(50_000_000), 2);     // 50 MB → 2 permits (32 concurrent)
+        assert_eq!(concurrency_weight(200_000_000), 16);   // 200 MB → 16 permits (4 concurrent)
+        assert_eq!(concurrency_weight(800_000_000), 32);   // 800 MB → 32 permits (2 concurrent)
+        assert_eq!(concurrency_weight(2_000_000_000), 64); // 2 GB → 64 permits (1 concurrent)
     }
 }

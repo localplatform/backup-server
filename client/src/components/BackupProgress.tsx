@@ -2,12 +2,23 @@ import { useState, useEffect } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import './BackupProgress.scss';
 
+interface ActiveFile {
+  path: string;
+  transferred_bytes: number;
+  total_bytes: number;
+  percent: number;
+}
+
 interface ProgressData {
   percent: number;
   checkedFiles: number;
   totalFiles: number;
   speed: string;
   currentFile: string;
+  currentFileBytes?: number;
+  currentFileTotal?: number;
+  currentFilePercent?: number;
+  activeFiles?: ActiveFile[];
 }
 
 interface Props {
@@ -24,13 +35,17 @@ export default function BackupProgress({ jobId }: Props) {
     const unsubs = [
       subscribe('backup:progress', (payload) => {
         if ((payload as { jobId: string }).jobId !== jobId) return;
-        const p = payload as unknown as ProgressData & { jobId: string };
+        const p = payload as any;
         setProgress({
           percent: p.percent,
           checkedFiles: p.checkedFiles,
           totalFiles: p.totalFiles,
           speed: p.speed,
           currentFile: p.currentFile,
+          currentFileBytes: p.currentFileBytes,
+          currentFileTotal: p.currentFileTotal,
+          currentFilePercent: p.currentFilePercent,
+          activeFiles: p.activeFiles || [],
         });
       }),
       subscribe('backup:completed', (payload) => {
@@ -65,12 +80,13 @@ export default function BackupProgress({ jobId }: Props) {
   }
 
   const percent = status === 'completed' ? 100 : (progress?.percent ?? 0);
+  const activeFiles = progress?.activeFiles ?? [];
 
   return (
     <div className="backup-progress">
       <div className="progress-header">
         <span className="progress-label">
-          {status === 'completed' ? 'Completed' : status === 'failed' ? 'Failed' : `${percent}%`}
+          {status === 'completed' ? 'Completed' : status === 'failed' ? 'Failed' : `${percent.toFixed(1)}%`}
         </span>
         {progress?.speed && status === 'running' && (
           <span className="progress-speed">{progress.speed}</span>
@@ -83,14 +99,29 @@ export default function BackupProgress({ jobId }: Props) {
         />
       </div>
       {progress && status === 'running' && (
-        <div className="progress-info">
-          {progress.currentFile && (
-            <span className="progress-file" title={progress.currentFile}>{progress.currentFile}</span>
+        <>
+          {activeFiles.length > 0 ? (
+            <div className="progress-active-files">
+              {[...activeFiles].sort((a, b) => b.total_bytes - a.total_bytes).map((file, idx) => (
+                <div key={idx} className="progress-active-file">
+                  <span className="progress-file" title={file.path}>
+                    {file.path.split('/').pop() || file.path}
+                  </span>
+                  <span className="progress-file-percent">{file.percent.toFixed(0)}%</span>
+                </div>
+              ))}
+            </div>
+          ) : progress.currentFile && (
+            <div className="progress-info">
+              <span className="progress-file" title={progress.currentFile}>{progress.currentFile}</span>
+            </div>
           )}
-          <span className="progress-count">
-            {progress.checkedFiles}/{progress.totalFiles} files
-          </span>
-        </div>
+          <div className="progress-info">
+            <span className="progress-count">
+              {progress.checkedFiles}/{progress.totalFiles} files
+            </span>
+          </div>
+        </>
       )}
       {summary && (
         <div className="progress-summary">

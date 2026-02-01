@@ -57,22 +57,44 @@ pub struct FileInfo {
 }
 
 impl FileInfo {
-    /// Create FileInfo from a DirEntry
-    fn from_entry(entry: &DirEntry, root: &Path) -> std::io::Result<Self> {
-        let metadata = entry.metadata()?;
+    /// Create FileInfo from a DirEntry.
+    /// For symlinks, resolves to the target to get the real file size.
+    /// Returns None if the symlink target is a directory or cannot be resolved.
+    fn from_entry(entry: &DirEntry, root: &Path) -> std::io::Result<Option<Self>> {
+        let raw_metadata = entry.metadata()?;
         let path = entry.path().to_path_buf();
         let relative_path = path.strip_prefix(root)
             .unwrap_or(&path)
             .to_path_buf();
+        let is_symlink = raw_metadata.is_symlink();
 
-        Ok(Self {
+        // For symlinks, resolve to get the real file metadata
+        let (size, is_dir) = if is_symlink {
+            match std::fs::metadata(&path) {
+                Ok(resolved) => {
+                    if resolved.is_dir() {
+                        // Symlink to directory — skip it
+                        return Ok(None);
+                    }
+                    (resolved.len(), false)
+                }
+                Err(_) => {
+                    // Broken symlink — skip it
+                    return Ok(None);
+                }
+            }
+        } else {
+            (raw_metadata.len(), raw_metadata.is_dir())
+        };
+
+        Ok(Some(Self {
             path,
             relative_path,
-            size: metadata.len(),
-            is_dir: metadata.is_dir(),
-            is_symlink: metadata.is_symlink(),
+            size,
+            is_dir,
+            is_symlink,
             depth: entry.depth(),
-        })
+        }))
     }
 }
 
@@ -117,8 +139,9 @@ pub fn walk_directory(root: &Path, options: WalkOptions) -> std::io::Result<Vec<
             continue;
         }
 
-        let file_info = FileInfo::from_entry(&entry, root)?;
-        files.push(file_info);
+        if let Some(file_info) = FileInfo::from_entry(&entry, root)? {
+            files.push(file_info);
+        }
     }
 
     Ok(files)
@@ -160,8 +183,9 @@ where
             continue;
         }
 
-        let file_info = FileInfo::from_entry(&entry, root)?;
-        callback(&file_info);
+        if let Some(file_info) = FileInfo::from_entry(&entry, root)? {
+            callback(&file_info);
+        }
     }
 
     Ok(())

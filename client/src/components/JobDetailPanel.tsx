@@ -4,9 +4,11 @@ import { useWebSocket } from '../hooks/useWebSocket.js';
 import type { BackupJob } from '../api/endpoints.js';
 import './JobDetailPanel.scss';
 
-interface JobDetailPanelProps {
-  job: BackupJob | null;
-  serverName: string;
+interface ActiveFile {
+  path: string;
+  transferred_bytes: number;
+  total_bytes: number;
+  percent: number;
 }
 
 interface ProgressData {
@@ -15,10 +17,17 @@ interface ProgressData {
   totalFiles: number;
   speed: string;
   currentFile: string;
-  // Per-file progress
+  // Per-file progress (legacy)
   currentFileBytes: number;
   currentFileTotal: number;
   currentFilePercent: number;
+  // Active parallel transfers
+  activeFiles: ActiveFile[];
+}
+
+interface JobDetailPanelProps {
+  job: BackupJob | null;
+  serverName: string;
 }
 
 export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps) {
@@ -36,16 +45,17 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
     const unsubs = [
       subscribe('backup:progress', (payload) => {
         if ((payload as { jobId: string }).jobId !== job.id) return;
-        const p = payload as unknown as ProgressData & { jobId: string };
+        const p = payload as any;
         setProgress({
           percent: p.percent,
           checkedFiles: p.checkedFiles,
           totalFiles: p.totalFiles,
           speed: p.speed,
           currentFile: p.currentFile,
-          currentFileBytes: p.currentFileBytes,
-          currentFileTotal: p.currentFileTotal,
-          currentFilePercent: p.currentFilePercent,
+          currentFileBytes: p.currentFileBytes || 0,
+          currentFileTotal: p.currentFileTotal || 0,
+          currentFilePercent: p.currentFilePercent || 0,
+          activeFiles: p.activeFiles || [],
         });
         setStatus('running');
       }),
@@ -77,6 +87,7 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
 
   const percent = status === 'completed' ? 100 : (progress?.percent ?? 0);
   const remotePaths: string[] = JSON.parse(job.remote_paths);
+  const activeFiles = progress?.activeFiles ?? [];
 
   return (
     <div className="job-detail-panel">
@@ -115,8 +126,41 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
         </div>
       </div>
 
-      {/* Current file */}
-      {progress?.currentFile && status === 'running' && (
+      {/* Active files (parallel transfers) */}
+      {activeFiles.length > 0 && status === 'running' && (
+        <div className="panel-section">
+          <h4>Active Transfers ({activeFiles.length})</h4>
+          <div className="active-files-list">
+            {[...activeFiles].sort((a, b) => b.total_bytes - a.total_bytes).map((file, idx) => (
+              <div key={idx} className="active-file-item">
+                <div className="active-file-header">
+                  <FileText size={14} />
+                  <span className="active-file-name" title={file.path}>
+                    {file.path.split('/').pop() || file.path}
+                  </span>
+                  <span className="active-file-percent">{file.percent.toFixed(1)}%</span>
+                </div>
+                {file.total_bytes >= 10 * 1024 * 1024 && (
+                  <div className="active-file-progress">
+                    <div className="progress-bar">
+                      <div
+                        className="progress-fill running"
+                        style={{ width: `${file.percent}%` }}
+                      />
+                    </div>
+                    <span className="active-file-size">
+                      {formatBytes(file.transferred_bytes)} / {formatBytes(file.total_bytes)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Fallback: single file (when no active_files array) */}
+      {activeFiles.length === 0 && progress?.currentFile && status === 'running' && (
         <div className="panel-section">
           <h4>Current File</h4>
           <div className="current-file">

@@ -6,6 +6,7 @@ import { pipeline } from 'stream/promises';
 import { decompress as zstdDecompress } from '@mongodb-js/zstd';
 import { logger } from '../utils/logger.js';
 import { config } from '../config.js';
+import { backupVersionModel } from '../models/backupVersion.js';
 
 // Create a Transform stream for zstd decompression
 class ZstdDecompressor extends Transform {
@@ -59,10 +60,11 @@ router.post('/upload', async (req: Request, res: Response) => {
 
     const metadata: UploadMetadata = { jobId, relativePath, totalSize };
 
-    logger.info({ jobId, relativePath, totalSize }, 'Receiving file upload');
+    logger.debug({ jobId, relativePath, totalSize }, 'Receiving file upload');
 
-    // Determine destination path - use HDD mount point from config
-    const baseDir = path.join(config.backupsDir, jobId);
+    // Determine destination path - use version directory if available
+    const runningVersion = backupVersionModel.findByJobId(jobId).find(v => v.status === 'running');
+    const baseDir = runningVersion ? runningVersion.local_path : path.join(config.backupsDir, jobId);
     const destPath = path.join(baseDir, relativePath);
 
     // Create parent directories
@@ -97,7 +99,7 @@ router.post('/upload', async (req: Request, res: Response) => {
         });
       }
 
-      logger.info({ jobId, relativePath, size: stats.size }, 'File upload complete');
+      logger.debug({ jobId, relativePath, size: stats.size }, 'File upload complete');
 
       res.json({
         success: true,

@@ -3,6 +3,7 @@
 use axum::{Json, http::StatusCode, extract::State};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Deserialize)]
 pub struct StartBackupRequest {
@@ -42,7 +43,7 @@ pub async fn start_backup(
     // Create temporary destination (TODO: get from server or config)
     let destination = PathBuf::from(format!("/tmp/backup-{}", req.job_id));
 
-    // Create backup job
+    // Create backup job (concurrency is auto-adaptive based on file sizes)
     let job = crate::executor::BackupJob {
         job_id: req.job_id.clone(),
         paths,
@@ -50,8 +51,15 @@ pub async fn start_backup(
         server_url: req.server_url,
     };
 
-    // Create executor
-    let mut executor = crate::executor::BackupExecutor::new(app_state.ws_state.clone());
+    // Create cancellation token shared between executor and tracker
+    let cancel_token = CancellationToken::new();
+    let executor_token = cancel_token.clone();
+
+    // Create executor with cancellation support
+    let mut executor = crate::executor::BackupExecutor::with_cancel(
+        app_state.ws_state.clone(),
+        executor_token,
+    );
 
     let job_id = req.job_id.clone();
     let tracker = app_state.job_tracker.clone();
@@ -77,8 +85,8 @@ pub async fn start_backup(
         }
     });
 
-    // Register the job with its abort handle
-    app_state.job_tracker.register(req.job_id.clone(), handle.abort_handle()).await;
+    // Register the job with its abort handle AND cancellation token
+    app_state.job_tracker.register(req.job_id.clone(), handle.abort_handle(), cancel_token).await;
 
     Ok(Json(StartBackupResponse {
         status: "started".to_string(),

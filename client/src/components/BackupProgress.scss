@@ -70,3 +70,57 @@
   color: $success;
   font-size: 0.8rem;
 }
+
+.progress-active-files {
+  margin-top: 0.3rem;
+
+  .progress-active-file {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.7rem;
+    color: $text-muted;
+    padding: 0.1rem 0;
+
+    .progress-file {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 75%;
+    }
+
+    .progress-file-percent {
+      font-weight: 600;
+      color: $primary;
+      white-space: nowrap;
+    }
+  }
+}
+
+.file-progress {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: $radius-sm;
+
+  .file-progress-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.4rem;
+    font-size: 0.75rem;
+
+    .file-progress-label {
+      font-weight: 600;
+      color: $text;
+    }
+
+    .file-progress-size {
+      color: $text-muted;
+      font-size: 0.7rem;
+    }
+  }
+
+  .file-progress-bar {
+    height: 6px;
+  }
+}

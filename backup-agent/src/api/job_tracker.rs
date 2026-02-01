@@ -4,11 +4,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::AbortHandle;
+use tokio_util::sync::CancellationToken;
+
+/// Entry for a tracked job
+struct TrackedJob {
+    abort_handle: AbortHandle,
+    cancel_token: CancellationToken,
+}
 
 /// Tracks running backup jobs and provides cancellation mechanism
 #[derive(Clone)]
 pub struct JobTracker {
-    jobs: Arc<RwLock<HashMap<String, AbortHandle>>>,
+    jobs: Arc<RwLock<HashMap<String, TrackedJob>>>,
 }
 
 impl JobTracker {
@@ -18,17 +25,23 @@ impl JobTracker {
         }
     }
 
-    /// Register a new job with its abort handle
-    pub async fn register(&self, job_id: String, handle: AbortHandle) {
+    /// Register a new job with its abort handle and cancellation token
+    pub async fn register(&self, job_id: String, handle: AbortHandle, token: CancellationToken) {
         let mut jobs = self.jobs.write().await;
-        jobs.insert(job_id, handle);
+        jobs.insert(job_id, TrackedJob {
+            abort_handle: handle,
+            cancel_token: token,
+        });
     }
 
     /// Cancel a running job by its ID
     pub async fn cancel(&self, job_id: &str) -> bool {
         let mut jobs = self.jobs.write().await;
-        if let Some(handle) = jobs.remove(job_id) {
-            handle.abort();
+        if let Some(tracked) = jobs.remove(job_id) {
+            // Signal all tasks to stop via the cancellation token
+            tracked.cancel_token.cancel();
+            // Also abort the top-level task as a fallback
+            tracked.abort_handle.abort();
             true
         } else {
             false

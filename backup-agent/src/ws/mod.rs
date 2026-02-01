@@ -33,7 +33,7 @@ pub enum WsEvent {
 
     /// Backup job completed successfully
     #[serde(rename = "backup:completed")]
-    BackupCompleted { job_id: String, total_bytes: u64 },
+    BackupCompleted { job_id: String, total_bytes: u64, total_files: usize },
 
     /// Backup job failed
     #[serde(rename = "backup:failed")]
@@ -61,10 +61,22 @@ pub struct BackupProgressPayload {
     pub files_processed: usize,
     pub total_files: usize,
     pub speed: String,
-    // Per-file progress
+    // Per-file progress (legacy single file)
     pub current_file_bytes: u64,
     pub current_file_total: u64,
     pub current_file_percent: f64,
+    // Active parallel transfers
+    #[serde(default)]
+    pub active_files: Vec<ActiveFileProgress>,
+}
+
+/// Progress for a single active file transfer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveFileProgress {
+    pub path: String,
+    pub transferred_bytes: u64,
+    pub total_bytes: u64,
+    pub percent: f64,
 }
 
 /// Agent status information
@@ -226,6 +238,7 @@ mod tests {
             current_file_bytes: 512,
             current_file_total: 1024,
             current_file_percent: 50.0,
+            active_files: vec![],
         });
 
         let json = serde_json::to_string(&event).unwrap();
