@@ -56,6 +56,9 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("Path migration failed: {}", e);
     }
 
+    // Backfill manifests for completed versions that predate incremental backup support
+    services::agent_orchestrator::backfill_manifests(&pool);
+
     // Build application state
     let state = Arc::new(AppState::new(pool, config.clone()));
 

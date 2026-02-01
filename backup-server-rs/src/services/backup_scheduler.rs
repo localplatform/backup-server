@@ -52,7 +52,7 @@ impl BackupScheduler {
                 }
 
                 tracing::info!(job_id = %jid, name = %job_data.name, "Starting scheduled backup");
-                if let Err(e) = agent_orchestrator::run_backup_job(state, jid.clone(), false).await {
+                if let Err(e) = agent_orchestrator::run_backup_job(state, jid.clone()).await {
                     tracing::error!(job_id = %jid, error = %e, "Scheduled backup failed");
                 }
             })

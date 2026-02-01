@@ -127,6 +127,28 @@ pub fn migrate(pool: &DbPool, data_dir: &Path, keys_dir: &Path) -> anyhow::Resul
         )?;
     }
 
+    // backup_versions migrations (incremental backup support)
+    if !has_column("backup_versions", "backup_type") {
+        conn.execute_batch(
+            "ALTER TABLE backup_versions ADD COLUMN backup_type TEXT NOT NULL DEFAULT 'full'",
+        )?;
+    }
+    if !has_column("backup_versions", "files_unchanged") {
+        conn.execute_batch(
+            "ALTER TABLE backup_versions ADD COLUMN files_unchanged INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
+    if !has_column("backup_versions", "bytes_unchanged") {
+        conn.execute_batch(
+            "ALTER TABLE backup_versions ADD COLUMN bytes_unchanged INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
+    if !has_column("backup_versions", "files_deleted") {
+        conn.execute_batch(
+            "ALTER TABLE backup_versions ADD COLUMN files_deleted INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
+
     tracing::info!("[DB] Migration completed successfully");
     Ok(())
 }

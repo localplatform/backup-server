@@ -198,6 +198,9 @@ export default function StorageHierarchyTree({ onVersionSelect, selectedVersion 
                                   <span className={`version-status status-${version.status}`}>
                                     {version.status}
                                   </span>
+                                  {version.backup_type === 'incremental' && (
+                                    <span className="backup-type-badge incremental">Incr.</span>
+                                  )}
                                   <span className="version-size">
                                     {formatBytes(version.bytes_transferred)} · {version.files_transferred.toLocaleString()} files
                                   </span>

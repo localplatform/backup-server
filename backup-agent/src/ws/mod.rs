@@ -34,7 +34,23 @@ pub enum WsEvent {
 
     /// Backup job completed successfully
     #[serde(rename = "backup:completed")]
-    BackupCompleted { job_id: String, total_bytes: u64, total_files: usize },
+    BackupCompleted {
+        job_id: String,
+        total_bytes: u64,
+        total_files: usize,
+        #[serde(default)]
+        transferred_bytes: u64,
+        #[serde(default)]
+        transferred_files: usize,
+        #[serde(default)]
+        unchanged_files: usize,
+        #[serde(default)]
+        unchanged_bytes: u64,
+        #[serde(default)]
+        deleted_files: usize,
+        #[serde(default)]
+        backup_type: String,
+    },
 
     /// Backup job failed
     #[serde(rename = "backup:failed")]
@@ -78,6 +94,13 @@ pub struct BackupProgressPayload {
     // Active parallel transfers
     #[serde(default)]
     pub active_files: Vec<ActiveFileProgress>,
+    // Incremental backup stats
+    #[serde(default)]
+    pub skipped_files: usize,
+    #[serde(default)]
+    pub skipped_bytes: u64,
+    #[serde(default)]
+    pub backup_type: String,
 }
 
 /// Progress for a single active file transfer
@@ -249,6 +272,9 @@ mod tests {
             current_file_total: 1024,
             current_file_percent: 50.0,
             active_files: vec![],
+            skipped_files: 0,
+            skipped_bytes: 0,
+            backup_type: "full".to_string(),
         });
 
         let json = serde_json::to_string(&event).unwrap();

@@ -49,6 +49,8 @@ pub async fn start_backup(
         paths,
         destination,
         server_url: req.server_url,
+        incremental: false,
+        manifest_url: None,
     };
 
     // Create cancellation token shared between executor and tracker

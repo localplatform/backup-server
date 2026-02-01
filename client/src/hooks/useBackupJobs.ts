@@ -55,7 +55,7 @@ export function useDeleteJob() {
 
 export function useRunJob() {
   return useMutation({
-    mutationFn: ({ jobId, full }: { jobId: string; full?: boolean }) => jobsApi.run(jobId, { full }),
+    mutationFn: (jobId: string) => jobsApi.run(jobId),
     onSuccess: () => toast.success('Backup started'),
     onError: (err: Error) => toast.error(err.message),
   });

@@ -115,23 +115,16 @@ async fn delete_job(
     }
 }
 
-#[derive(Deserialize)]
-pub struct RunJobQuery {
-    pub full: Option<bool>,
-}
-
 async fn run_job(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Query(query): Query<RunJobQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let full = query.full.unwrap_or(false);
     let state2 = state.clone();
     let id2 = id.clone();
 
     // Spawn the backup as a background task
     tokio::spawn(async move {
-        if let Err(e) = crate::services::agent_orchestrator::run_backup_job(state2, id2, full).await {
+        if let Err(e) = crate::services::agent_orchestrator::run_backup_job(state2, id2).await {
             tracing::error!("Backup job failed: {:#}", e);
         }
     });

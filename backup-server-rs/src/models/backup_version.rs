@@ -16,6 +16,10 @@ pub struct BackupVersion {
     pub files_transferred: i64,
     pub created_at: String,
     pub completed_at: Option<String>,
+    pub backup_type: String,
+    pub files_unchanged: i64,
+    pub bytes_unchanged: i64,
+    pub files_deleted: i64,
 }
 
 fn row_to_version(row: &Row) -> rusqlite::Result<BackupVersion> {
@@ -32,6 +36,10 @@ fn row_to_version(row: &Row) -> rusqlite::Result<BackupVersion> {
         files_transferred: row.get("files_transferred")?,
         created_at: row.get("created_at")?,
         completed_at: row.get("completed_at")?,
+        backup_type: row.get("backup_type").unwrap_or_else(|_| "full".to_string()),
+        files_unchanged: row.get("files_unchanged").unwrap_or(0),
+        bytes_unchanged: row.get("bytes_unchanged").unwrap_or(0),
+        files_deleted: row.get("files_deleted").unwrap_or(0),
     })
 }
 
@@ -82,11 +90,29 @@ pub fn create(conn: &Connection, data: &CreateVersionData) -> anyhow::Result<Bac
         .ok_or_else(|| anyhow::anyhow!("Failed to retrieve created version"))
 }
 
+pub struct CompletionData {
+    pub bytes_transferred: i64,
+    pub files_transferred: i64,
+    pub backup_type: String,
+    pub files_unchanged: i64,
+    pub bytes_unchanged: i64,
+    pub files_deleted: i64,
+}
+
 pub fn update_completion(conn: &Connection, id: &str, bytes_transferred: i64, files_transferred: i64) -> anyhow::Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
     conn.execute(
         "UPDATE backup_versions SET status = 'completed', bytes_transferred = ?, files_transferred = ?, completed_at = ? WHERE id = ?",
         params![bytes_transferred, files_transferred, now, id],
+    )?;
+    Ok(())
+}
+
+pub fn update_completion_incremental(conn: &Connection, id: &str, data: &CompletionData) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE backup_versions SET status = 'completed', bytes_transferred = ?, files_transferred = ?, backup_type = ?, files_unchanged = ?, bytes_unchanged = ?, files_deleted = ?, completed_at = ? WHERE id = ?",
+        params![data.bytes_transferred, data.files_transferred, data.backup_type, data.files_unchanged, data.bytes_unchanged, data.files_deleted, now, id],
     )?;
     Ok(())
 }

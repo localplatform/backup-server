@@ -23,6 +23,10 @@ interface ProgressData {
   currentFilePercent: number;
   // Active parallel transfers
   activeFiles: ActiveFile[];
+  // Incremental backup stats
+  skippedFiles: number;
+  skippedBytes: number;
+  backupType: string;
 }
 
 interface JobDetailPanelProps {
@@ -56,6 +60,9 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
           currentFileTotal: p.currentFileTotal || 0,
           currentFilePercent: p.currentFilePercent || 0,
           activeFiles: p.activeFiles || [],
+          skippedFiles: p.skippedFiles || 0,
+          skippedBytes: p.skippedBytes || 0,
+          backupType: p.backupType || 'full',
         });
         setStatus('running');
       }),
@@ -88,6 +95,7 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
   const percent = status === 'completed' ? 100 : (progress?.percent ?? 0);
   const remotePaths: string[] = JSON.parse(job.remote_paths);
   const activeFiles = progress?.activeFiles ?? [];
+  const isIncremental = progress?.backupType === 'incremental';
 
   return (
     <div className="job-detail-panel">
@@ -98,6 +106,9 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
           <div className="job-meta">
             <Server size={14} />
             <span>{serverName}</span>
+            {isIncremental && (
+              <span className="backup-type-badge incremental">Incremental</span>
+            )}
           </div>
         </div>
       </div>
@@ -121,6 +132,11 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
           {progress && (
             <div className="progress-stats">
               <span>{progress.checkedFiles.toLocaleString()} / {progress.totalFiles.toLocaleString()} files</span>
+              {isIncremental && progress.skippedFiles > 0 && (
+                <span className="incremental-stats">
+                  {progress.skippedFiles.toLocaleString()} unchanged ({formatBytes(progress.skippedBytes)})
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -210,6 +226,11 @@ export default function JobDetailPanel({ job, serverName }: JobDetailPanelProps)
         <div className="panel-section">
           <div className="status-message completed">
             Backup completed successfully
+            {isIncremental && progress && progress.skippedFiles > 0 && (
+              <span className="completion-detail">
+                {' '}&mdash; {progress.skippedFiles.toLocaleString()} files unchanged, {(progress.totalFiles - progress.skippedFiles).toLocaleString()} transferred
+              </span>
+            )}
           </div>
         </div>
       )}

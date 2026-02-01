@@ -23,8 +23,6 @@ export default function BackupJobs() {
   const pingStatuses = useServerPingStatus();
   const [showForm, setShowForm] = useState(false);
   const [editingJob, setEditingJob] = useState<BackupJob | null>(null);
-  const [showBackupTypeModal, setShowBackupTypeModal] = useState(false);
-  const [pendingJobId, setPendingJobId] = useState<string | null>(null);
 
   const getServerName = (serverId: string) => {
     const server = servers.find(s => s.id === serverId);
@@ -103,57 +101,6 @@ export default function BackupJobs() {
         </div>
       )}
 
-      {showBackupTypeModal && pendingJobId && (
-        <div className="modal-overlay" onClick={() => setShowBackupTypeModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>Select Backup Type</h2>
-            <p style={{ marginBottom: '1.5rem', color: 'var(--text-secondary)' }}>
-              Choose how to perform this backup:
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <button
-                className="btn"
-                onClick={() => {
-                  runJob.mutate({ jobId: pendingJobId, full: false });
-                  setShowBackupTypeModal(false);
-                }}
-                style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-              >
-                <div>
-                  <strong>Incremental Backup</strong>
-                  <div style={{ fontSize: '0.85rem', opacity: 0.8, marginTop: '0.25rem' }}>
-                    Only transfer files that changed since last backup (faster, recommended)
-                  </div>
-                </div>
-              </button>
-
-              <button
-                className="btn btn-secondary"
-                onClick={() => {
-                  runJob.mutate({ jobId: pendingJobId, full: true });
-                  setShowBackupTypeModal(false);
-                }}
-                style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-              >
-                <div>
-                  <strong>Full Backup</strong>
-                  <div style={{ fontSize: '0.85rem', opacity: 0.8, marginTop: '0.25rem' }}>
-                    Transfer all files regardless of changes (slower, complete copy)
-                  </div>
-                </div>
-              </button>
-            </div>
-
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => setShowBackupTypeModal(false)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {isLoading ? (
         <div className="empty-state">Loading...</div>
       ) : jobs.length === 0 ? (
@@ -191,10 +138,7 @@ export default function BackupJobs() {
                       isActive={job.id === activeJob?.id}
                       running={running}
                       onEdit={() => setEditingJob(job)}
-                      onRun={(jobId) => {
-                        setPendingJobId(jobId);
-                        setShowBackupTypeModal(true);
-                      }}
+                      onRun={(jobId) => runJob.mutate(jobId)}
                       onCancel={() => cancelJob.mutate(job.id)}
                       onDelete={() => {
                         if (confirm('Delete this job?')) deleteJob.mutate(job.id);

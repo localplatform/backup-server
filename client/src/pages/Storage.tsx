@@ -148,6 +148,9 @@ export default function Storage() {
                       <strong>Status:</strong> <span className={`status-badge status-${selectedVersionData.status}`}>{selectedVersionData.status}</span>
                     </span>
                     <span className="detail-item">
+                      <strong>Type:</strong> {selectedVersionData.backup_type === 'incremental' ? 'Incremental' : 'Full'}
+                    </span>
+                    <span className="detail-item">
                       <strong>Size:</strong> {formatBytes(selectedVersionData.bytes_transferred)}
                     </span>
                     <span className="detail-item">

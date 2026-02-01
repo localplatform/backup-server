@@ -1,9 +1,11 @@
 use crate::db::connection::DbPool;
 use crate::models::{backup_job, backup_version, server};
 use crate::state::AppState;
+use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
-pub async fn run_backup_job(state: Arc<AppState>, job_id: String, _full_backup: bool) -> anyhow::Result<()> {
+pub async fn run_backup_job(state: Arc<AppState>, job_id: String) -> anyhow::Result<()> {
     // Check if already running
     {
         let mut running = state.running_jobs.lock().await;
@@ -129,15 +131,44 @@ async fn run_backup_inner(state: Arc<AppState>, job_id: &str) -> anyhow::Result<
     let server_sem = state.get_server_semaphore(&srv.id).await;
     let _server_permit = server_sem.acquire().await?;
 
-    tracing::info!(job_id = %jid, ?remote_paths, "Starting agent backup via WebSocket");
+    // Determine if incremental backup is possible (automatic: manifest exists → incremental)
+    let incremental = {
+        let db_inc = db.clone();
+        let jid_inc = jid.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = db_inc.get()?;
+            if let Some(prev) = backup_version::find_latest_completed(&conn, &jid_inc)? {
+                let manifest_path = std::path::PathBuf::from(&prev.local_path)
+                    .join(".backup-manifest.json");
+                Ok::<_, anyhow::Error>(manifest_path.exists())
+            } else {
+                Ok(false)
+            }
+        })
+        .await
+        .unwrap_or(Ok(false))
+        .unwrap_or(false)
+    };
+
+    let backup_type = if incremental { "incremental" } else { "full" };
+    tracing::info!(job_id = %jid, ?remote_paths, backup_type, "Starting agent backup via WebSocket");
 
     // Send backup start command
+    let mut payload = serde_json::json!({
+        "job_id": jid,
+        "paths": remote_paths,
+        "incremental": incremental,
+    });
+    if incremental {
+        payload.as_object_mut().unwrap().insert(
+            "manifest_url".to_string(),
+            serde_json::json!(format!("/api/files/manifest/{}", jid)),
+        );
+    }
+
     let sent = state.agents.send_to_agent(&srv.id, serde_json::json!({
         "type": "backup:start",
-        "payload": {
-            "job_id": jid,
-            "paths": remote_paths,
-        },
+        "payload": payload,
     }));
 
     if !sent {
@@ -147,7 +178,18 @@ async fn run_backup_inner(state: Arc<AppState>, job_id: &str) -> anyhow::Result<
 
     // Wait for completion via polling (agent messages are forwarded through the WS handler)
     // We use a channel-based approach: listen for completion/failure events
-    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<Result<(i64, i64), String>>();
+    #[derive(Debug)]
+    struct BackupCompletionStats {
+        total_bytes: i64,
+        total_files: i64,
+        transferred_bytes: i64,
+        transferred_files: i64,
+        unchanged_files: i64,
+        unchanged_bytes: i64,
+        deleted_files: i64,
+        backup_type: String,
+    }
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<Result<BackupCompletionStats, String>>();
     let done_tx = Arc::new(tokio::sync::Mutex::new(Some(done_tx)));
 
     // Spawn a timeout + polling task
@@ -223,8 +265,31 @@ async fn run_backup_inner(state: Arc<AppState>, job_id: &str) -> anyhow::Result<
                             .and_then(|v| v.as_i64()).unwrap_or(0);
                         let total_files = payload.get("totalFiles").or(payload.get("total_files"))
                             .and_then(|v| v.as_i64()).unwrap_or(0);
+                        let transferred_bytes = payload.get("transferredBytes").or(payload.get("transferred_bytes"))
+                            .and_then(|v| v.as_i64()).unwrap_or(total_bytes);
+                        let transferred_files = payload.get("transferredFiles").or(payload.get("transferred_files"))
+                            .and_then(|v| v.as_i64()).unwrap_or(total_files);
+                        let unchanged_files = payload.get("unchangedFiles").or(payload.get("unchanged_files"))
+                            .and_then(|v| v.as_i64()).unwrap_or(0);
+                        let unchanged_bytes = payload.get("unchangedBytes").or(payload.get("unchanged_bytes"))
+                            .and_then(|v| v.as_i64()).unwrap_or(0);
+                        let deleted_files = payload.get("deletedFiles").or(payload.get("deleted_files"))
+                            .and_then(|v| v.as_i64()).unwrap_or(0);
+                        let backup_type = payload.get("backupType").or(payload.get("backup_type"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("full")
+                            .to_string();
                         if let Some(tx) = done_tx3.lock().await.take() {
-                            let _ = tx.send(Ok((total_bytes, total_files)));
+                            let _ = tx.send(Ok(BackupCompletionStats {
+                                total_bytes,
+                                total_files,
+                                transferred_bytes,
+                                transferred_files,
+                                unchanged_files,
+                                unchanged_bytes,
+                                deleted_files,
+                                backup_type,
+                            }));
                         }
                         break;
                     }
@@ -252,27 +317,61 @@ async fn run_backup_inner(state: Arc<AppState>, job_id: &str) -> anyhow::Result<
     event_listener.abort();
 
     match result {
-        Ok((total_bytes, total_files)) => {
+        Ok(stats) => {
             let duration_secs = start_time.elapsed().as_secs() as i64;
+            let total_bytes = stats.total_bytes;
+            let total_files = stats.total_files;
+            let backup_type = stats.backup_type.clone();
+            let transferred_bytes = stats.transferred_bytes;
+            let transferred_files = stats.transferred_files;
+            let unchanged_files = stats.unchanged_files;
+            let unchanged_bytes = stats.unchanged_bytes;
+            let deleted_files = stats.deleted_files;
 
             // Update job status
             let db_c = db.clone();
             let jid_c = jid.clone();
             let log_id = log.id.clone();
             let vid = version.id.clone();
+            let completion_data = backup_version::CompletionData {
+                bytes_transferred: stats.transferred_bytes,
+                files_transferred: stats.transferred_files,
+                backup_type: stats.backup_type.clone(),
+                files_unchanged: stats.unchanged_files,
+                bytes_unchanged: stats.unchanged_bytes,
+                files_deleted: stats.deleted_files,
+            };
             tokio::task::spawn_blocking(move || {
                 let conn = db_c.get()?;
                 backup_job::update_status(&conn, &jid_c, "completed")?;
                 backup_job::update_log(&conn, &log_id, &[
                     ("status", &"completed" as &dyn rusqlite::types::ToSql),
-                    ("files_transferred", &total_files as &dyn rusqlite::types::ToSql),
-                    ("bytes_transferred", &total_bytes as &dyn rusqlite::types::ToSql),
+                    ("files_transferred", &stats.transferred_files as &dyn rusqlite::types::ToSql),
+                    ("bytes_transferred", &stats.transferred_bytes as &dyn rusqlite::types::ToSql),
                     ("finished_at", &chrono::Utc::now().to_rfc3339() as &dyn rusqlite::types::ToSql),
                 ])?;
-                backup_version::update_completion(&conn, &vid, total_bytes, total_files)?;
+                backup_version::update_completion_incremental(&conn, &vid, &completion_data)?;
                 Ok::<_, anyhow::Error>(())
             })
             .await??;
+
+            // Manifest is uploaded by the agent with correct source mtimes.
+            // Wait briefly for the upload to complete (agent sends it via HTTP
+            // right before the BackupCompleted WebSocket event).
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+            // Fallback: generate server-side manifest if agent didn't upload one
+            let manifest_vp = version_path.clone();
+            let manifest_jid = jid.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let manifest_path = manifest_vp.join(".backup-manifest.json");
+                if !manifest_path.exists() {
+                    tracing::info!(job_id = %manifest_jid, "No agent manifest found, generating server-side manifest (fallback)");
+                    if let Err(e) = generate_manifest(&manifest_vp, &manifest_jid) {
+                        tracing::warn!(job_id = %manifest_jid, "Failed to generate manifest: {}", e);
+                    }
+                }
+            }).await;
 
             // Cleanup old versions
             let max_versions = job.max_versions;
@@ -283,6 +382,10 @@ async fn run_backup_inner(state: Arc<AppState>, job_id: &str) -> anyhow::Result<
                 "totalBytes": total_bytes,
                 "totalFiles": total_files,
                 "duration": duration_secs,
+                "backupType": backup_type,
+                "unchangedFiles": unchanged_files,
+                "unchangedBytes": unchanged_bytes,
+                "deletedFiles": deleted_files,
             }));
 
             state.ui.broadcast("backup:progress", serde_json::json!({
@@ -290,10 +393,13 @@ async fn run_backup_inner(state: Arc<AppState>, job_id: &str) -> anyhow::Result<
                 "percent": 100,
                 "checkedFiles": total_files,
                 "totalFiles": total_files,
-                "transferredBytes": total_bytes,
+                "transferredBytes": transferred_bytes,
                 "totalBytes": total_bytes,
                 "speed": "",
                 "currentFile": "Completed",
+                "backupType": backup_type,
+                "skippedFiles": unchanged_files,
+                "skippedBytes": unchanged_bytes,
             }));
 
             tracing::info!(
@@ -375,6 +481,143 @@ pub async fn cancel_backup_job(state: Arc<AppState>, job_id: &str) -> anyhow::Re
     }
 
     Ok(())
+}
+
+/// Generate a `.backup-manifest.json` file in the version directory.
+/// The manifest records every file with its relative path, size, and mtime
+/// so future incremental backups can diff against it.
+fn generate_manifest(version_path: &Path, job_id: &str) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut files: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut total_files: usize = 0;
+    let mut total_bytes: u64 = 0;
+
+    fn walk_recursive(
+        dir: &Path,
+        root: &Path,
+        files: &mut HashMap<String, serde_json::Value>,
+        total_files: &mut usize,
+        total_bytes: &mut u64,
+    ) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+
+            if file_type.is_dir() {
+                walk_recursive(&path, root, files, total_files, total_bytes)?;
+            } else if file_type.is_file() {
+                let metadata = std::fs::metadata(&path)?;
+                let relative = path.strip_prefix(root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
+
+                // Skip the manifest file itself
+                if relative == ".backup-manifest.json" {
+                    continue;
+                }
+
+                let size = metadata.len();
+                let mtime = metadata.mtime();
+
+                files.insert(relative, serde_json::json!({
+                    "size": size,
+                    "mtime": mtime,
+                }));
+                *total_files += 1;
+                *total_bytes += size;
+            }
+        }
+        Ok(())
+    }
+
+    walk_recursive(version_path, version_path, &mut files, &mut total_files, &mut total_bytes)?;
+
+    let manifest = serde_json::json!({
+        "version": 1,
+        "job_id": job_id,
+        "files": files,
+        "total_files": total_files,
+        "total_bytes": total_bytes,
+    });
+
+    let manifest_path = version_path.join(".backup-manifest.json");
+    std::fs::write(&manifest_path, serde_json::to_string(&manifest)?)?;
+
+    tracing::info!(
+        job_id = %job_id,
+        total_files,
+        total_bytes,
+        "Generated backup manifest"
+    );
+
+    Ok(())
+}
+
+/// Backfill `.backup-manifest.json` for completed versions that don't have one.
+/// This is a startup migration for versions completed before manifest generation was added.
+pub fn backfill_manifests(db: &DbPool) {
+    let conn = match db.get() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Failed to get DB connection for manifest backfill: {}", e);
+            return;
+        }
+    };
+
+    let all_jobs = match backup_job::find_all(&conn) {
+        Ok(jobs) => jobs,
+        Err(e) => {
+            tracing::warn!("Failed to list jobs for manifest backfill: {}", e);
+            return;
+        }
+    };
+
+    let mut backfilled = 0;
+    for job in &all_jobs {
+        let versions = match backup_version::find_by_job_id(&conn, &job.id) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        for v in &versions {
+            if v.status != "completed" {
+                continue;
+            }
+            let manifest_path = std::path::PathBuf::from(&v.local_path)
+                .join(".backup-manifest.json");
+            if manifest_path.exists() {
+                continue;
+            }
+            // Version directory must exist
+            if !Path::new(&v.local_path).is_dir() {
+                continue;
+            }
+            match generate_manifest(Path::new(&v.local_path), &v.job_id) {
+                Ok(()) => {
+                    backfilled += 1;
+                    tracing::info!(
+                        job_id = %v.job_id,
+                        version = %v.version_timestamp,
+                        "Backfilled manifest for existing version"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        job_id = %v.job_id,
+                        version = %v.version_timestamp,
+                        "Failed to backfill manifest: {}", e
+                    );
+                }
+            }
+        }
+    }
+
+    if backfilled > 0 {
+        tracing::info!("Backfilled {} manifests for existing versions", backfilled);
+    }
 }
 
 async fn cleanup_old_versions(db: DbPool, job_id: String, max_versions: i64) {

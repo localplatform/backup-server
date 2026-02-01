@@ -1,18 +1,22 @@
 use crate::error::AppError;
 use crate::models::backup_version;
 use crate::state::AppState;
-use axum::extract::{Request, State};
+use axum::extract::{Path as AxumPath, Request, State};
 use axum::http::HeaderMap;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Json;
 use axum::Router;
 use futures_util::StreamExt;
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 
 pub fn router(_state: Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new().route("/upload", post(upload_file))
+    Router::new()
+        .route("/upload", post(upload_file))
+        .route("/manifest/{job_id}", get(get_manifest))
+        .route("/hardlink", post(create_hardlinks))
 }
 
 async fn upload_file(
@@ -127,5 +131,117 @@ async fn upload_file(
         "success": true,
         "path": relative_path,
         "size": metadata.len(),
+    })))
+}
+
+/// Returns the manifest JSON from the latest completed version for a given job.
+/// The agent fetches this to determine which files have changed for incremental backups.
+async fn get_manifest(
+    State(state): State<Arc<AppState>>,
+    AxumPath(job_id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let db = state.db.clone();
+    let jid = job_id.clone();
+
+    let prev = tokio::task::spawn_blocking(move || {
+        let conn = db.get()?;
+        backup_version::find_latest_completed(&conn, &jid)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!(e))??;
+
+    let prev = prev.ok_or_else(|| AppError::NotFound("No completed version found".into()))?;
+    let manifest_path = PathBuf::from(&prev.local_path).join(".backup-manifest.json");
+
+    let content = tokio::fs::read_to_string(&manifest_path).await
+        .map_err(|_| AppError::NotFound("Manifest not found for latest version".into()))?;
+
+    let manifest: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("Invalid manifest JSON: {}", e)))?;
+
+    Ok(Json(manifest))
+}
+
+#[derive(Deserialize)]
+struct HardlinkRequest {
+    job_id: String,
+    files: Vec<String>,
+}
+
+/// Creates hardlinks from the previous completed version to the current running version
+/// for files that haven't changed. This avoids re-transferring unchanged files while
+/// keeping each version as a complete, browsable snapshot.
+async fn create_hardlinks(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<HardlinkRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let db = state.db.clone();
+    let jid = body.job_id.clone();
+
+    // Find current running version and previous completed version
+    let (current_path, previous_path) = tokio::task::spawn_blocking(move || {
+        let conn = db.get()?;
+        let versions = backup_version::find_by_job_id(&conn, &jid)?;
+        let running = versions.iter()
+            .find(|v| v.status == "running")
+            .map(|v| v.local_path.clone());
+        let completed = versions.iter()
+            .find(|v| v.status == "completed")
+            .map(|v| v.local_path.clone());
+        Ok::<_, anyhow::Error>((running, completed))
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!(e))??;
+
+    let current = PathBuf::from(
+        current_path.ok_or_else(|| AppError::BadRequest("No running version found".into()))?
+    );
+    let previous = PathBuf::from(
+        previous_path.ok_or_else(|| AppError::BadRequest("No previous completed version".into()))?
+    );
+
+    let files = body.files;
+    let (linked, failed) = tokio::task::spawn_blocking(move || {
+        let mut linked = 0u64;
+        let mut failed = 0u64;
+
+        for rel_path in &files {
+            let src = previous.join(rel_path);
+            let dst = current.join(rel_path);
+
+            if !src.exists() {
+                tracing::warn!(path = %rel_path, "Hardlink source does not exist");
+                failed += 1;
+                continue;
+            }
+
+            if let Some(parent) = dst.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+
+            match std::fs::hard_link(&src, &dst) {
+                Ok(_) => linked += 1,
+                Err(e) => {
+                    tracing::warn!(path = %rel_path, error = %e, "Hardlink failed");
+                    failed += 1;
+                }
+            }
+        }
+
+        (linked, failed)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!(e))?;
+
+    tracing::info!(
+        job_id = %body.job_id,
+        linked,
+        failed,
+        "Hardlink creation completed"
+    );
+
+    Ok(Json(serde_json::json!({
+        "linked": linked,
+        "failed": failed,
     })))
 }

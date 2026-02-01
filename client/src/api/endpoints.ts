@@ -60,6 +60,10 @@ export interface BackupVersion {
   files_transferred: number;
   created_at: string;
   completed_at: string | null;
+  backup_type: 'full' | 'incremental';
+  files_unchanged: number;
+  bytes_unchanged: number;
+  files_deleted: number;
 }
 
 export interface RemoteEntry {
@@ -176,7 +180,7 @@ export const jobsApi = {
   update: (id: string, data: Partial<BackupJob>) =>
     api.put<BackupJob>(`/jobs/${id}`, data).then(r => r.data),
   delete: (id: string) => api.delete(`/jobs/${id}`),
-  run: (id: string, options?: { full?: boolean }) => api.post<{ started: boolean }>(`/jobs/${id}/run`, options).then(r => r.data),
+  run: (id: string) => api.post<{ started: boolean }>(`/jobs/${id}/run`).then(r => r.data),
   cancel: (id: string) => api.post<{ cancelled: boolean }>(`/jobs/${id}/cancel`).then(r => r.data),
   logs: (id: string) => api.get<BackupLog[]>(`/jobs/${id}/logs`).then(r => r.data),
 };

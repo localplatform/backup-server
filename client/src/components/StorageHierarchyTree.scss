@@ -161,6 +161,19 @@
     }
   }
 
+  .backup-type-badge {
+    padding: 0.1rem 0.4rem;
+    border-radius: $radius-sm;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+
+    &.incremental {
+      background: rgba($info, 0.15);
+      color: $info;
+    }
+  }
+
   .version-size {
     color: $text-muted;
     font-size: 0.75rem;

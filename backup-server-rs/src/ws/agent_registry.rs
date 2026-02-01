@@ -153,11 +153,28 @@ async fn handle_agent_socket(socket: WebSocket, state: Arc<AppState>) {
             Err(_) => continue,
         };
 
-        let msg_type = parsed.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        // Support both formats:
+        // 1. {"type": "event_name", "payload": {...}} (standard)
+        // 2. {"event_name": {...}} (serde externally-tagged enum from agent)
+        let (msg_type, msg_payload) = if let Some(t) = parsed.get("type").and_then(|t| t.as_str()) {
+            (t.to_string(), parsed.get("payload").cloned())
+        } else if let Some(obj) = parsed.as_object() {
+            if let Some((key, value)) = obj.iter().next() {
+                if obj.len() == 1 {
+                    (key.clone(), Some(value.clone()))
+                } else {
+                    (String::new(), None)
+                }
+            } else {
+                (String::new(), None)
+            }
+        } else {
+            (String::new(), None)
+        };
 
-        match msg_type {
+        match msg_type.as_str() {
             "agent:register" => {
-                let payload = parsed.get("payload").cloned().unwrap_or_default();
+                let payload = msg_payload.clone().unwrap_or_default();
                 let sid = payload.get("server_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let hostname = payload.get("hostname").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let version = payload.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -223,7 +240,7 @@ async fn handle_agent_socket(socket: WebSocket, state: Arc<AppState>) {
             }
             _ => {
                 // Check if this is a response to a pending request
-                if let Some(payload) = parsed.get("payload") {
+                if let Some(ref payload) = msg_payload {
                     if let Some(request_id) = payload.get("request_id").and_then(|v| v.as_str()) {
                         state.agents.resolve_request(request_id, payload.clone());
                         continue;
@@ -232,9 +249,9 @@ async fn handle_agent_socket(socket: WebSocket, state: Arc<AppState>) {
 
                 // Forward other agent messages as UI broadcasts if relevant
                 if msg_type.starts_with("backup:") {
-                    if let Some(payload) = parsed.get("payload") {
-                        let camel = snake_to_camel_keys(payload.clone());
-                        state.ui.broadcast(msg_type, camel);
+                    if let Some(payload) = msg_payload {
+                        let camel = snake_to_camel_keys(payload);
+                        state.ui.broadcast(&msg_type, camel);
                     }
                 }
             }

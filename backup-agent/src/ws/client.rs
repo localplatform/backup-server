@@ -57,6 +57,10 @@ pub struct StartBackupPayload {
     pub server_url: Option<String>,
     #[serde(default)]
     pub token: Option<String>,
+    #[serde(default)]
+    pub incremental: bool,
+    #[serde(default)]
+    pub manifest_url: Option<String>,
 }
 
 /// Reverse WebSocket client that connects to the backup server.
@@ -259,6 +263,8 @@ async fn handle_start_backup(payload: StartBackupPayload, app_state: &AppState, 
         paths,
         destination,
         server_url,
+        incremental: payload.incremental,
+        manifest_url: payload.manifest_url,
     };
 
     let cancel_token = CancellationToken::new();
@@ -326,4 +332,23 @@ async fn handle_browse_filesystem(path: &str, request_id: &str, app_state: &AppS
 async fn handle_update_agent(download_url: &str, version: &str) {
     info!("Received agent:update command: version={}, url={}", version, download_url);
     crate::update::self_update(download_url, version).await;
+}
+
+/// Convert a WsEvent (serde externally-tagged enum) to the `{"type": ..., "payload": ...}`
+/// format expected by the backup server's agent registry.
+fn event_to_server_json(event: &WsEvent) -> Result<String, serde_json::Error> {
+    // Serialize to Value first — externally tagged produces {"event_name": {fields...}}
+    let value = serde_json::to_value(event)?;
+    if let serde_json::Value::Object(map) = value {
+        // The single key is the event type, value is the payload
+        if let Some((event_type, payload)) = map.into_iter().next() {
+            let msg = serde_json::json!({
+                "type": event_type,
+                "payload": payload,
+            });
+            return serde_json::to_string(&msg);
+        }
+    }
+    // Fallback: serialize as-is
+    serde_json::to_string(event)
 }
