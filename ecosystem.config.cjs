@@ -2,16 +2,15 @@ module.exports = {
   apps: [
     {
       name: 'backup-server',
-      cwd: './server',
-      script: 'node_modules/.bin/tsx',
-      args: 'watch src/index.ts',
+      script: './target/release/backup-server',
       env: {
-        NODE_ENV: 'development',
-        AGENT_PORT: '9990', // Rust backup agent port
-        BACKUP_SERVER_IP: '10.10.10.100', // IP accessible by remote agents
+        PORT: '3000',
+        BACKUPS_DIR: '/backup/data/backups',
+        BACKUP_SERVER_IP: '10.10.10.100',
+        RUST_LOG: 'info',
       },
-      kill_timeout: 10000, // 10s for graceful shutdown (DB flush + cleanup)
-      max_restarts: 10, // Limit infinite restart loops
+      kill_timeout: 10000,
+      max_restarts: 10,
     },
     {
       name: 'backup-client',

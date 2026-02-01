@@ -11,5 +11,5 @@ server/data/
 client/dist/
 
 # Rust
-backup-agent/target/
-backup-agent/Cargo.lock
+target/
+Cargo.lock

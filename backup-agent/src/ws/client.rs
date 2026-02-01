@@ -221,7 +221,7 @@ async fn handle_server_message(text: &str, app_state: &AppState, server_url: &st
 
     match parsed {
         Ok(ServerCommand::StartBackup(payload)) => {
-            handle_start_backup(payload, app_state).await;
+            handle_start_backup(payload, app_state, server_url).await;
         }
         Ok(ServerCommand::CancelBackup { job_id }) => {
             handle_cancel_backup(&job_id, app_state).await;
@@ -245,12 +245,14 @@ async fn handle_server_message(text: &str, app_state: &AppState, server_url: &st
     }
 }
 
-async fn handle_start_backup(payload: StartBackupPayload, app_state: &AppState) {
+async fn handle_start_backup(payload: StartBackupPayload, app_state: &AppState, ws_server_url: &str) {
     info!("Received backup:start command for job: {}", payload.job_id);
 
     let paths: Vec<PathBuf> = payload.paths.iter().map(PathBuf::from).collect();
     let destination = PathBuf::from(format!("/tmp/backup-{}", payload.job_id));
-    let server_url = payload.server_url.unwrap_or_default();
+    let server_url = payload.server_url
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| ws_server_url.to_string());
 
     let job = crate::executor::BackupJob {
         job_id: payload.job_id.clone(),

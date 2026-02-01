@@ -1,0 +1,47 @@
+[package]
+name = "backup-server-rs"
+version = "1.0.0"
+edition = "2021"
+description = "Rust backend for the backup server"
+
+[[bin]]
+name = "backup-server"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+futures-util = { workspace = true }
+bytes = { workspace = true }
+zstd = { workspace = true }
+async-compression = { workspace = true }
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.24"
+
+# SSH
+ssh2 = "0.9"
+
+# Cron scheduling
+tokio-cron-scheduler = "0.11"
+
+# Concurrent data structures
+dashmap = "6"
+
+# Config
+dotenvy = "0.15"
+
+# Utilities
+tokio-util = { version = "0.7", features = ["rt", "io"] }

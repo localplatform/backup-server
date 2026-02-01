@@ -363,6 +363,9 @@ impl BackupExecutor {
             }
         }
 
+        // Check if cancellation was requested by the user (before we cancel the progress task)
+        let was_cancelled_by_user = self.cancel_token.is_cancelled();
+
         // Stop the progress broadcast task
         self.cancel_token.cancel(); // No-op if not already cancelled
         let _ = progress_task.await;
@@ -374,8 +377,8 @@ impl BackupExecutor {
         let duration = start_time.elapsed();
         let duration_secs = duration.as_secs();
 
-        // Check if we were cancelled
-        if self.cancel_token.is_cancelled() && total_processed < total_files_count {
+        // Check if we were cancelled by the user
+        if was_cancelled_by_user && total_processed < total_files_count {
             info!("Backup cancelled: {} files processed out of {}", total_processed, total_files_count);
 
             self.broadcast_event(WsEvent::BackupFailed {
